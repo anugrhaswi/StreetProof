@@ -115,9 +115,8 @@ def classify_candidate(
     geo_close_auto = coords_present and geo_distance_m is not None and geo_distance_m <= auto_merge_radius_meters
     geo_close_review = coords_present and geo_distance_m is not None and geo_distance_m <= matching_radius_meters
 
-    # Category disagreement: never auto-merge. May still be review only in rare cases? Spec says
-    # "A category disagreement must prevent automatic merging. Strong conflicting evidence may still be sent for human review."
-    # We'll allow review only when visual evidence is very strong or sha256 matches and geo close enough for review.
+    # Category disagreement: never auto-merge. Strong conflicting evidence may still be sent for human review.
+    # Exact image reuse is strong evidence of photo reuse even with conflicting metadata/location; keep visible for review.
     category_disagrees = category_match is False
 
     # AUTO_MERGE_CANDIDATE: very strong evidence, no contradiction.
@@ -139,18 +138,18 @@ def classify_candidate(
     strong_text = text_sim is not None and text_sim >= text_similarity_threshold
 
     if category_disagrees:
-        # Conflicting evidence: only escalate to review if extremely strong visual/identical image and within review radius.
-        if (sha256_match is True or strong_visual) and geo_close_review:
+        # Conflicting evidence: never auto-merge. Exact image reuse should be reviewed by humans.
+        # Strong visual similarity is escalated only within review radius to avoid noisy false positives.
+        if sha256_match is True:
+            return CandidateClassification.REVIEW_CANDIDATE
+        if strong_visual and geo_close_review:
             return CandidateClassification.REVIEW_CANDIDATE
         return CandidateClassification.NO_MATCH
 
-    # Same photo but far apart - review, not auto.
+    # Same photo is strong evidence of reuse. Never silently discard due to distance/coords conflicts;
+    # classify for human review, but never auto-merge outside auto-merge eligibility.
     if sha256_match is True:
-        if geo_close_review or not coords_present:
-            return CandidateClassification.REVIEW_CANDIDATE
-        # Even if far, identical image is suspicious; review if within general reason. We already checked radius.
-        # Outside matching radius with coords: no match.
-        return CandidateClassification.NO_MATCH
+        return CandidateClassification.REVIEW_CANDIDATE
 
     if moderate_visual and (geo_close_review or not coords_present):
         # If coords missing, never auto-merge; review allowed when other evidence strong enough.
@@ -216,14 +215,6 @@ def find_candidate_incidents_multisignal(
         geo_distance_m: float | None = None
         if has_target_coords and has_cand_coords:
             geo_distance_m = haversine_distance(float(target_lat), float(target_lng), float(cand_lat), float(cand_lng))
-            # Filter outside general matching radius when both have valid coords.
-            if geo_distance_m > matching_radius_meters:
-                # Exception: identical SHA-256 at distance is suspicious - but spec says filter outside general radius
-                # when both reports have valid coordinates. Keep it simple: skip.
-                # (sha256 identical but far apart - NO_MATCH by classification; filtering is fine)
-                # We'll still allow if sha256 matches? Spec: "Filter candidates outside the general matching radius when both reports have valid coordinates."
-                # That's clear - filter out.
-                pass
 
         # Component scores
         cand_sha256 = cand.get("sha256_hash")
@@ -268,8 +259,16 @@ def find_candidate_incidents_multisignal(
         if classification == CandidateClassification.NO_MATCH:
             continue
 
-        # Apply geo radius filter when both coords valid (after classification, sha256-far is NO_MATCH anyway).
-        if has_target_coords and has_cand_coords and geo_distance_m is not None and geo_distance_m > matching_radius_meters:
+        # Apply geo radius filter when both coords valid. Exact SHA-256 matches are exempt from hard discard:
+        # same photo reused at different locations is suspicious and must remain visible for human review,
+        # but it must never auto-merge on image evidence alone.
+        if (
+            has_target_coords
+            and has_cand_coords
+            and geo_distance_m is not None
+            and geo_distance_m > matching_radius_meters
+            and sha256_match is not True
+        ):
             continue
 
         heuristic = _heuristic_score(

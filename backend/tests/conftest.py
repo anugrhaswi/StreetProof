@@ -147,6 +147,7 @@ def app(db_engine, mock_embedding_service, upload_dir):
     from app.api.matching import router as matching_router
     from app.api.reports import router as reports_router
     from app.api.admin_dashboard import router as admin_dashboard_router
+    from app.api.admin_incidents import router as admin_incidents_router
     from app.api.admin_matches import router as admin_matches_router
     from app.api.admin_merges import router as admin_merges_router
     from app.api.admin_reports import router as admin_reports_router
@@ -167,10 +168,19 @@ def app(db_engine, mock_embedding_service, upload_dir):
     async def test_lifespan(_app: FastAPI):
         yield
 
+    from app.config import settings as app_settings
+    old_upload_dir = app_settings.upload_dir
+    old_cors_origins = app_settings.cors_origins
+    app_settings.upload_dir = str(upload_dir)
+    # Isolated test app keeps explicit local origins; production CORS validation
+    # is covered by dedicated config tests.
+    app_settings.cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
     test_app = FastAPI(title="Test StreetProof", lifespan=test_lifespan)
     test_app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=app_settings.normalized_cors_origins(),
+        allow_origin_regex=app_settings.cors_origin_regex(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -183,13 +193,10 @@ def app(db_engine, mock_embedding_service, upload_dir):
     test_app.include_router(matching_router)
     test_app.include_router(admin_auth_router)
     test_app.include_router(admin_dashboard_router)
+    test_app.include_router(admin_incidents_router)
     test_app.include_router(admin_matches_router)
     test_app.include_router(admin_reports_router)
     test_app.include_router(admin_merges_router)
-
-    from app.config import settings as app_settings
-    old_upload_dir = app_settings.upload_dir
-    app_settings.upload_dir = str(upload_dir)
 
     # Patch EmbeddingService.get_instance everywhere it's used
     patches = [
@@ -204,6 +211,7 @@ def app(db_engine, mock_embedding_service, upload_dir):
         for p in patches:
             p.stop()
         app_settings.upload_dir = old_upload_dir
+        app_settings.cors_origins = old_cors_origins
 
 
 @pytest.fixture(scope="function")

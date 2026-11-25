@@ -219,3 +219,84 @@ class TestMatchingIntegration:
             ).all()
         )
         assert len(suggestions) == 1
+
+class TestMatchingPublicApi:
+    def test_public_matching_status_hides_internal_evidence(self, client, db_session, mock_embedding_service, session_factory):
+        resp1 = _submit_report(client, "Large pothole on main road near market", "pothole", 27.7, 85.3)
+        assert resp1.status_code == 201
+        r1 = resp1.json()
+        worker = MatchingWorker()
+        with patch("app.services.matching_worker.SessionLocal", session_factory):
+            worker._process_next_job()
+
+        resp2 = _submit_report(client, "Big hole on the road beside the market", "pothole", 27.701, 85.301)
+        assert resp2.status_code == 201
+        r2 = resp2.json()
+        with patch("app.services.matching_worker.SessionLocal", session_factory):
+            worker._process_next_job()
+
+        res = client.get(f"/api/matching/reports/{r2['id']}")
+        assert res.status_code == 200
+        data = res.json()
+        assert set(data.keys()) == {"status", "suggestion_count", "error_message"}
+        assert data["status"] in {"pending", "processing", "completed", "failed"}
+        assert isinstance(data["suggestion_count"], int)
+        assert data["suggestion_count"] >= 0
+        # Ensure no internal evidence fields leak.
+        serialized = str(data).lower()
+        for forbidden in [
+            "similarity_score", "matched_report_description", "incident_latitude", "incident_longitude",
+            "sha256_match", "phash_similarity", "text_similarity", "geo_distance_meters",
+            "category_match", "candidate_classification", "incident_id", "matched_report_id", "suggestions"
+        ]:
+            assert forbidden not in data
+            assert f"'{forbidden}'" not in serialized
+
+    def test_public_matching_status_returns_null_when_no_job(self, client, db_session):
+        report = Report(
+            description="Report without matching job for public status",
+            category="pothole",
+            latitude=27.7,
+            longitude=85.3,
+            image_path="uploads/test.jpg",
+            sha256_hash="b" * 64,
+            phash="0" * 16,
+            phash_size=8,
+            incident_id=_create_standalone_incident(db_session),
+        )
+        db_session.add(report)
+        db_session.commit()
+        db_session.refresh(report)
+
+        res = client.get(f"/api/matching/reports/{report.id}")
+        assert res.status_code == 200
+        assert res.json() is None
+
+    def test_matching_suggestions_requires_admin_and_hides_from_public(self, client, db_session):
+        resp = _submit_report(client, "Potential match report", "pothole", 27.7, 85.3)
+        report_id = resp.json()["id"]
+
+        unauth = client.get(f"/api/matching/suggestions/{report_id}")
+        assert unauth.status_code == 401
+
+        login = client.post("/api/admin/login", json={"username": "admin", "password": "test-password-123"})
+        assert login.status_code == 200
+        auth = client.get(f"/api/matching/suggestions/{report_id}")
+        assert auth.status_code == 200
+        assert isinstance(auth.json(), list)
+
+
+def _create_standalone_incident(db_session):
+    from app.models import Incident, CategoryEnum, StatusEnum
+    incident = Incident(
+        title="Standalone incident",
+        description="Standalone",
+        category=CategoryEnum.POTHOLE,
+        latitude=27.7,
+        longitude=85.3,
+        status=StatusEnum.OPEN,
+    )
+    db_session.add(incident)
+    db_session.commit()
+    db_session.refresh(incident)
+    return incident.id

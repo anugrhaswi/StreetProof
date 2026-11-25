@@ -76,14 +76,20 @@ def check_auto_merge_eligibility(
     if candidate.phash_similarity is not None and candidate.phash_similarity < 0.0:
         return MergeEligibilityResult(False, "invalid_phash_similarity")
 
+    # Exact image reuse at distant locations is suspicious evidence, not proof of same incident.
+    if (
+        candidate.sha256_match is True
+        and candidate.geo_distance_meters is not None
+        and candidate.geo_distance_meters > float(settings.matching_radius_meters)
+    ):
+        return MergeEligibilityResult(False, "sha256_far_apart")
+
     if actor_type == ActorTypeEnum.ADMIN:
         # Human-reviewed: bypass strict thresholds, keep contradiction/safety guards.
         if candidate.candidate_classification == CandidateClassification.NO_MATCH:
             return MergeEligibilityResult(False, "candidate_not_match")
         if candidate.geo_distance_meters is None:
             return MergeEligibilityResult(False, "missing_coordinates")
-        if candidate.sha256_match is True and candidate.geo_distance_meters > float(settings.matching_radius_meters):
-            return MergeEligibilityResult(False, "sha256_far_apart")
         return MergeEligibilityResult(True, "eligible_admin_override")
 
     if candidate.candidate_classification != CandidateClassification.AUTO_MERGE_CANDIDATE:

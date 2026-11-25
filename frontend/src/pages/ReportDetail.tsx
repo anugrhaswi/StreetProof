@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, MapPin, Calendar, AlertCircle, ImageOff, Loader2 } from 'lucide-react';
+import { ArrowLeft, Calendar, AlertCircle, ExternalLink, ImageOff, Loader2, MapPin } from 'lucide-react';
 import { getReport, imageUrl, type Report } from '../services/api';
 import { useToast } from '../components/Toast';
 import PotentialMatches from '../components/PotentialMatches';
@@ -44,6 +44,11 @@ export default function ReportDetail() {
   }
 
   const incident = report.incident;
+  const hasValidCoords = Number.isFinite(report.latitude) && Number.isFinite(report.longitude)
+    && report.latitude >= -90 && report.latitude <= 90 && report.longitude >= -180 && report.longitude <= 180;
+  const googleMapsUrl = hasValidCoords
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(report.latitude)},${encodeURIComponent(report.longitude)}`
+    : null;
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-12">
@@ -87,8 +92,22 @@ export default function ReportDetail() {
             <div className="flex gap-3">
               <MapPin size={16} className="text-gray-500 mt-0.5" />
               <div>
-                <dt className="text-gray-500">Coordinates</dt>
-                <dd className="text-gray-200">{report.latitude.toFixed(6)}, {report.longitude.toFixed(6)}</dd>
+                <dt className="text-gray-500">Location</dt>
+                <dd>
+                  {googleMapsUrl ? (
+                    <a
+                      href={googleMapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-brand-400 hover:text-brand-300 text-sm font-medium"
+                    >
+                      Open in Google Maps <ExternalLink size={13} />
+                    </a>
+                  ) : (
+                    <span className="text-gray-500 text-sm">Location unavailable</span>
+                  )}
+                  <div className="text-xs text-gray-500 mt-0.5">Coordinates: {report.latitude.toFixed(6)}, {report.longitude.toFixed(6)}</div>
+                </dd>
               </div>
             </div>
             <div className="flex gap-3">

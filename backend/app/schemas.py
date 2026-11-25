@@ -64,6 +64,14 @@ class IncidentDetailResponse(IncidentResponse):
     reports: list[ReportResponse] = []
 
 
+class AdminIncidentListItem(IncidentResponse):
+    report_count: int = 0
+
+
+class AdminIncidentStatusUpdateRequest(BaseModel):
+    status: StatusEnum
+
+
 class IncidentMapResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -157,6 +165,12 @@ class MatchingJobResponse(BaseModel):
     suggestions: list[MatchSuggestionResponse] = []
 
 
+class PublicMatchingStatusResponse(BaseModel):
+    status: MatchingJobStatusEnum
+    suggestion_count: int
+    error_message: str | None = None
+
+
 class AIHealthResponse(BaseModel):
     status: str
     model_name: str
@@ -166,7 +180,11 @@ class AIHealthResponse(BaseModel):
 class DashboardStatsResponse(BaseModel):
     total_reports: int
     total_incidents: int
+    open_incidents: int
+    closed_incidents: int
+    merged_incidents: int
     pending_suggestions: int
+    pending_jobs: int
     completed_jobs: int
     failed_jobs: int
     reports_last_7_days: int

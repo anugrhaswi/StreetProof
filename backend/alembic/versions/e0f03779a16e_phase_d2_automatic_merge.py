@@ -119,14 +119,22 @@ def upgrade() -> None:
             "(actor_type = 'SYSTEM' AND admin_username IS NULL AND system_actor IS NOT NULL)",
         )
 
-    # Match suggestions: extend status enum to include AUTO_MERGED/SUPERSEDED
-    with op.batch_alter_table('match_suggestions') as batch_op:
-        batch_op.alter_column(
-            'status',
-            existing_type=sa.VARCHAR(length=9),
-            type_=sa.Enum('PENDING', 'REVIEWED', 'DISMISSED', 'AUTO_MERGED', 'SUPERSEDED', name='suggestion_status_enum'),
-            existing_nullable=False,
-        )
+    # Match suggestions: extend status enum to include AUTO_MERGED/SUPERSEDED/REJECTED.
+    bind = op.get_bind()
+    dialect = bind.dialect.name
+    suggestion_status_values = ['PENDING', 'REVIEWED', 'DISMISSED', 'REJECTED', 'AUTO_MERGED', 'SUPERSEDED']
+    if dialect == 'postgresql':
+        # Enum labels must be literals in ALTER TYPE ... ADD VALUE; bind params are not supported.
+        for value in suggestion_status_values:
+            op.execute(f"ALTER TYPE suggestion_status_enum ADD VALUE IF NOT EXISTS '{value}'")
+    else:
+        with op.batch_alter_table('match_suggestions') as batch_op:
+            batch_op.alter_column(
+                'status',
+                existing_type=sa.VARCHAR(length=9),
+                type_=sa.Enum(*suggestion_status_values, name='suggestion_status_enum'),
+                existing_nullable=False,
+            )
 
 
 def downgrade() -> None:

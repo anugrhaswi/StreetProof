@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, Calendar, FileText, ImageOff, Loader2, MapPin } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Calendar, ExternalLink, FileText, ImageOff, Loader2, MapPin } from 'lucide-react';
 import { getIncident, imageUrl, type Incident, type Report } from '../services/api';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -122,6 +122,11 @@ export default function IncidentDetail() {
   const statusStyle = STATUS_STYLES[incident.status] ?? STATUS_STYLES.open;
   const statusLabel = STATUS_LABELS[incident.status] ?? incident.status;
   const categoryLabel = CATEGORY_LABELS[incident.category] ?? incident.category;
+  const hasValidCoords = Number.isFinite(incident.latitude) && Number.isFinite(incident.longitude)
+    && incident.latitude >= -90 && incident.latitude <= 90 && incident.longitude >= -180 && incident.longitude <= 180;
+  const googleMapsUrl = hasValidCoords
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(incident.latitude)},${encodeURIComponent(incident.longitude)}`
+    : null;
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
@@ -161,7 +166,19 @@ export default function IncidentDetail() {
             <MapPin size={16} className="mt-0.5 text-gray-500 shrink-0" />
             <div>
               <div className="text-gray-500 text-xs uppercase tracking-wide">Location</div>
-              <div className="text-gray-300">{incident.latitude.toFixed(5)}, {incident.longitude.toFixed(5)}</div>
+              {googleMapsUrl ? (
+                <a
+                  href={googleMapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-brand-400 hover:text-brand-300 font-medium"
+                >
+                  Open in Google Maps <ExternalLink size={13} />
+                </a>
+              ) : (
+                <div className="text-gray-500">Location unavailable</div>
+              )}
+              <div className="text-xs text-gray-500 mt-0.5">Coordinates: {incident.latitude.toFixed(5)}, {incident.longitude.toFixed(5)}</div>
             </div>
           </div>
           <div className="flex items-start gap-2 text-gray-400">

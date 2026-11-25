@@ -1,4 +1,4 @@
-import { AlertCircle, Calendar, CheckCircle2, Clock, FileText, MapPin, XCircle } from 'lucide-react';
+import { AlertCircle, Calendar, CheckCircle2, Clock, FileText, GitMerge, Loader2, MapPin, XCircle } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AdminLayout from '../../components/admin/AdminLayout';
@@ -89,19 +89,23 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
         {loading || !stats ? (
-          Array.from({ length: 6 }).map((_, i) => (
+          Array.from({ length: 10 }).map((_, i) => (
             <div key={i} className="h-[116px] bg-gray-900/40 border border-gray-800 rounded-xl animate-pulse" />
           ))
         ) : (
           <>
             <StatCard label="Total Reports" value={stats.total_reports} icon={FileText} tone="text-blue-300 bg-blue-500/10 border-blue-500/20" />
-            <StatCard label="Total Incidents" value={stats.total_incidents} icon={MapPin} tone="text-emerald-300 bg-emerald-500/10 border-emerald-500/20" />
+            <StatCard label="Reports (7 Days)" value={stats.reports_last_7_days} icon={Calendar} tone="text-violet-300 bg-violet-500/10 border-violet-500/20" />
+            <StatCard label="Open Incidents" value={stats.open_incidents} icon={MapPin} tone="text-red-300 bg-red-500/10 border-red-500/20" />
+            <StatCard label="Closed Incidents" value={stats.closed_incidents} icon={CheckCircle2} tone="text-emerald-300 bg-emerald-500/10 border-emerald-500/20" />
+            <StatCard label="Merged Incidents" value={stats.merged_incidents} icon={GitMerge} tone="text-gray-300 bg-gray-500/10 border-gray-500/20" />
+            <StatCard label="Total Incidents" value={stats.total_incidents} icon={MapPin} tone="text-sky-300 bg-sky-500/10 border-sky-500/20" />
             <StatCard label="Pending Suggestions" value={stats.pending_suggestions} icon={Clock} tone="text-amber-300 bg-amber-500/10 border-amber-500/20" />
+            <StatCard label="Pending Jobs" value={stats.pending_jobs} icon={Loader2} tone="text-orange-300 bg-orange-500/10 border-orange-500/20" />
             <StatCard label="Completed Jobs" value={stats.completed_jobs} icon={CheckCircle2} tone="text-teal-300 bg-teal-500/10 border-teal-500/20" />
             <StatCard label="Failed Jobs" value={stats.failed_jobs} icon={XCircle} tone="text-red-300 bg-red-500/10 border-red-500/20" />
-            <StatCard label="Reports (7 Days)" value={stats.reports_last_7_days} icon={Calendar} tone="text-violet-300 bg-violet-500/10 border-violet-500/20" />
           </>
         )}
       </div>
@@ -157,7 +161,7 @@ export default function AdminDashboard() {
                     <td className="px-5 py-4 text-gray-400 whitespace-nowrap">{formatDate(r.created_at)}</td>
                     <td className="px-5 py-4 text-gray-400 font-mono text-xs">{r.incident_id ? shortId(r.incident_id) : '—'}</td>
                     <td className="px-5 py-4">
-                      <Link to={`/reports/${r.id}`} className="text-brand-400 hover:text-brand-300 underline underline-offset-2">
+                      <Link to={`/admin/reports/${r.id}`} className="text-brand-400 hover:text-brand-300 underline underline-offset-2">
                         View
                       </Link>
                     </td>

@@ -15,6 +15,7 @@ from app.models import (
     Incident,
     MatchingJob,
     MatchSuggestion,
+    MergeEvent,
     Report,
     StatusEnum,
 )
@@ -220,6 +221,20 @@ def delete_admin_report(
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
 
+    merge_event_refs = db.scalar(
+        select(func.count()).select_from(MergeEvent).where(
+            or_(
+                MergeEvent.report_id == report.id,
+                MergeEvent.matched_report_id == report.id,
+            )
+        )
+    ) or 0
+    if merge_event_refs > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Report cannot be deleted because it is referenced by merge history. Preserve merge audit history.",
+        )
+
     incident = report.incident
     incident_id = report.incident_id
     image_path = report.image_path
@@ -252,13 +267,20 @@ def delete_admin_report(
             remaining = db.scalar(
                 select(func.count()).select_from(Report).where(Report.incident_id == incident_id)
             ) or 0
-            # Preserve incident if other reports remain or if it is merged/preserved.
+            # Preserve incident if other reports remain, it is merged, or merge history references it.
             if remaining == 0 and incident is not None and incident.status != StatusEnum.MERGED:
-                # Ensure no other dependent suggestions reference this incident (defensive).
                 incident_suggestion_refs = db.scalar(
                     select(func.count()).select_from(MatchSuggestion).where(MatchSuggestion.incident_id == incident_id)
                 ) or 0
-                if incident_suggestion_refs == 0:
+                incident_merge_refs = db.scalar(
+                    select(func.count()).select_from(MergeEvent).where(
+                        or_(
+                            MergeEvent.source_incident_id == incident_id,
+                            MergeEvent.target_incident_id == incident_id,
+                        )
+                    )
+                ) or 0
+                if incident_suggestion_refs == 0 and incident_merge_refs == 0:
                     db.delete(incident)
                     incident_deleted = True
 

@@ -61,6 +61,8 @@ export type MatchingJobStatus = 'pending' | 'processing' | 'completed' | 'failed
 
 export type SuggestionStatus = 'pending' | 'reviewed' | 'dismissed' | 'rejected' | 'auto_merged' | 'superseded';
 
+export type MatchingStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
 export interface MatchSuggestion {
   id: string;
   report_id: string;
@@ -82,6 +84,12 @@ export interface MatchSuggestion {
   geo_distance_meters: number | null;
   category_match: boolean | null;
   candidate_classification: 'AUTO_MERGE_CANDIDATE' | 'REVIEW_CANDIDATE' | 'NO_MATCH' | null;
+}
+
+export interface PublicMatchingStatus {
+  status: MatchingStatus;
+  suggestion_count: number;
+  error_message: string | null;
 }
 
 export interface MatchingJob {
@@ -115,7 +123,11 @@ export interface AdminLoginResponse {
 export interface DashboardStats {
   total_reports: number;
   total_incidents: number;
+  open_incidents: number;
+  closed_incidents: number;
+  merged_incidents: number;
   pending_suggestions: number;
+  pending_jobs: number;
   completed_jobs: number;
   failed_jobs: number;
   reports_last_7_days: number;
@@ -128,6 +140,10 @@ export interface RecentReport {
   created_at: string;
   incident_id: string | null;
   image_path: string | null;
+}
+
+export interface AdminIncidentListItem extends Incident {
+  report_count: number;
 }
 
 export interface AdminReportListItem extends Report {
@@ -231,11 +247,11 @@ export async function getIncidentsForMap(): Promise<IncidentMapItem[]> {
   return handleResponse<IncidentMapItem[]>(response);
 }
 
-export async function getMatchingStatus(reportId: string): Promise<MatchingJob | null> {
+export async function getMatchingStatus(reportId: string): Promise<PublicMatchingStatus | null> {
   const response = await fetch(`${API_BASE_URL}/api/matching/reports/${reportId}`, {
     headers: { Accept: 'application/json' },
   });
-  return handleResponse<MatchingJob | null>(response);
+  return handleResponse<PublicMatchingStatus | null>(response);
 }
 
 export async function getAIHealth(): Promise<AIHealthResponse> {
@@ -325,6 +341,41 @@ export async function getAdminReport(reportId: string): Promise<AdminReportDetai
     headers: { Accept: 'application/json' },
   });
   return handleResponse<AdminReportDetail>(response);
+}
+
+export async function getAdminIncidents(page = 1, pageSize = 20, status?: Status): Promise<PaginatedResponse<AdminIncidentListItem>> {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (status) params.set('status', status);
+  const response = await fetch(`${API_BASE_URL}/api/admin/incidents?${params.toString()}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  });
+  return handleResponse<PaginatedResponse<AdminIncidentListItem>>(response);
+}
+
+export async function getAdminIncident(incidentId: string): Promise<Incident> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/incidents/${incidentId}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  });
+  return handleResponse<Incident>(response);
+}
+
+export async function updateAdminIncidentStatus(incidentId: string, status: 'open' | 'closed'): Promise<Incident> {
+  const csrf = getCsrfToken();
+  const response = await fetch(`${API_BASE_URL}/api/admin/incidents/${incidentId}/status`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
+    },
+    body: JSON.stringify({ status }),
+  });
+  return handleResponse<Incident>(response);
 }
 
 export async function deleteAdminReport(reportId: string): Promise<AdminReportDeleteResponse> {

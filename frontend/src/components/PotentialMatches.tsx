@@ -1,263 +1,164 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Clock, Loader2, RefreshCw, Search } from 'lucide-react';
-import { getAIHealth, getMatchingStatus, type MatchingJob, type MatchSuggestion } from '../services/api';
+import { useEffect, useRef, useState } from 'react';
+import { AlertCircle, CheckCircle2, Clock, Loader2, ShieldCheck } from 'lucide-react';
+import { getAIHealth, getMatchingStatus, type AIHealthResponse, type PublicMatchingStatus } from '../services/api';
+
+const POLL_INTERVAL_MS = 2000;
+const MAX_POLLS = 30;
 
 interface PotentialMatchesProps {
   reportId: string;
 }
 
-const POLL_INTERVAL_MS = 2000;
-
-function similarityLabel(score: number): string {
-  return `${(score * 100).toFixed(1)}% semantic similarity`;
-}
-
-function statusBadge(status: string) {
-  const styles: Record<string, string> = {
-    open: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-    closed: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-    merged: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
-  };
-  return (
-    <span className={`px-2 py-0.5 text-xs rounded-full border capitalize ${styles[status] || 'text-gray-400 border-gray-600'}`}>
-      {status}
-    </span>
-  );
-}
-
-function SuggestionCard({ suggestion }: { suggestion: MatchSuggestion }) {
-  return (
-    <div className="rounded-lg border border-gray-800 bg-gray-900/50 p-4">
-      <div className="flex flex-wrap items-center gap-2 mb-2">
-        <span className="text-sm font-semibold text-brand-300">{similarityLabel(suggestion.similarity_score)}</span>
-        <span className="text-xs text-gray-500">(semantic similarity, not duplication probability)</span>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 mb-2">
-        {suggestion.incident_category && (
-          <span className="px-2 py-0.5 text-xs rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20 capitalize">
-            {suggestion.incident_category}
-          </span>
-        )}
-        {suggestion.incident_status && statusBadge(suggestion.incident_status)}
-      </div>
-
-      <h4 className="text-sm font-medium text-white mb-1">{suggestion.incident_title || 'Related incident'}</h4>
-      {suggestion.matched_report_description && (
-        <p className="text-sm text-gray-400 line-clamp-3">{suggestion.matched_report_description}</p>
-      )}
-      <div className="mt-2 text-xs text-gray-500">
-        Incident ID: {suggestion.incident_id}
-        {suggestion.incident_latitude != null && suggestion.incident_longitude != null && (
-          <span className="ml-2">
-            ({suggestion.incident_latitude.toFixed(4)}, {suggestion.incident_longitude.toFixed(4)})
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function PotentialMatches({ reportId }: PotentialMatchesProps) {
-  const [job, setJob] = useState<MatchingJob | null | undefined>(undefined);
+  const [job, setJob] = useState<PublicMatchingStatus | null>(null);
+  const [aiHealth, setAiHealth] = useState<AIHealthResponse | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [aiStatus, setAiStatus] = useState<string | null>(null);
-  const [pollFailures, setPollFailures] = useState(0);
-  const [isRetrying, setIsRetrying] = useState(false);
-  const intervalRef = useRef<number | null>(null);
-  const MAX_POLL_FAILURES = 10;
+  const [timedOut, setTimedOut] = useState(false);
+  const pollCount = useRef(0);
+  const timerRef = useRef<number | null>(null);
 
-  const fetchStatus = useCallback(async () => {
-    try {
-      const [jobData, ai] = await Promise.all([getMatchingStatus(reportId), getAIHealth().catch(() => null)]);
-      if (jobData === null) {
-        setPollFailures((c) => c + 1);
-      } else {
-        setPollFailures(0);
+  useEffect(() => {
+    let cancelled = false;
+
+    const clearTimer = () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
       }
-      setJob(jobData);
-      if (ai) setAiStatus(ai.status);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load matching status.');
-      setPollFailures((c) => c + 1);
-    } finally {
-      setIsRetrying(false);
-    }
+    };
+
+    const poll = async () => {
+      try {
+        const [jobResult, healthResult] = await Promise.allSettled([
+          getMatchingStatus(reportId),
+          aiHealth ? Promise.resolve(aiHealth) : getAIHealth(),
+        ]);
+        if (cancelled) return;
+
+        if (healthResult.status === 'fulfilled') setAiHealth(healthResult.value);
+
+        if (jobResult.status === 'rejected') {
+          throw jobResult.reason;
+        }
+
+        const nextJob = jobResult.value;
+        setJob(nextJob);
+        setError(null);
+        setLoading(false);
+
+        const status = nextJob?.status;
+        const terminal = status === 'completed' || status === 'failed';
+        if (terminal) {
+          clearTimer();
+          return;
+        }
+
+        pollCount.current += 1;
+        if (pollCount.current >= MAX_POLLS) {
+          setTimedOut(true);
+          clearTimer();
+          return;
+        }
+
+        clearTimer();
+        timerRef.current = window.setTimeout(poll, POLL_INTERVAL_MS);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Failed to load matching status.');
+        setLoading(false);
+        clearTimer();
+      }
+    };
+
+    setLoading(true);
+    setError(null);
+    setTimedOut(false);
+    pollCount.current = 0;
+    void poll();
+
+    return () => {
+      cancelled = true;
+      clearTimer();
+    };
+    // aiHealth intentionally excluded to avoid poll restarts
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportId]);
 
-  useEffect(() => {
-    let active = true;
+  return (
+    <div className="bg-brand-900/60 border border-gray-800 rounded-xl p-6">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h2 className="text-lg font-semibold">Potential Matching Incidents</h2>
+        {aiHealth && aiHealth.status !== 'ready' && (
+          <span className="text-xs px-2.5 py-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 text-yellow-300">
+            AI {aiHealth.status === 'failed' ? 'unavailable' : 'loading'}
+          </span>
+        )}
+      </div>
 
-    const run = async () => {
-      if (!active) return;
-      await fetchStatus();
-    };
+      {loading && !job && (
+        <div className="flex items-center gap-3 text-gray-300">
+          <Loader2 size={18} className="animate-spin text-brand-400" />
+          <span className="text-sm">Checking for potential duplicates...</span>
+        </div>
+      )}
 
-    run();
-
-    return () => {
-      active = false;
-      if (intervalRef.current) window.clearInterval(intervalRef.current);
-    };
-  }, [fetchStatus]);
-
-  useEffect(() => {
-    if (intervalRef.current) {
-      window.clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-
-    const shouldPoll =
-      job === undefined ||
-      (job === null && pollFailures < MAX_POLL_FAILURES) ||
-      job?.status === 'pending' ||
-      job?.status === 'processing';
-    if (!shouldPoll) return;
-
-    intervalRef.current = window.setInterval(() => {
-      fetchStatus();
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      if (intervalRef.current) {
-        window.clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [job?.status, pollFailures, fetchStatus]);
-
-  const renderContent = () => {
-    if (error) {
-      return (
-        <div className="flex items-start gap-2 text-sm text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+      {error && (
+        <div className="flex items-center gap-2 text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-sm">
+          <AlertCircle size={16} />
           <span>{error}</span>
         </div>
-      );
-    }
+      )}
 
-    if (job === undefined) {
-      return (
-        <div className="flex items-center gap-2 text-sm text-gray-400">
-          <Loader2 size={16} className="animate-spin" />
-          Checking matching status...
-        </div>
-      );
-    }
-
-    if (job === null) {
-      if (pollFailures >= MAX_POLL_FAILURES) {
-        return (
-          <div className="flex items-start gap-3 text-sm text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-            <AlertCircle size={16} className="mt-0.5 shrink-0" />
-            <div className="flex-1">
-              <div className="font-medium">Unable to retrieve matching status</div>
-              <div className="text-red-200/80 mt-0.5 mb-3">
-                The matching job could not be found. It may not have been created yet.
-              </div>
-              <button
-                onClick={() => { setError(null); setPollFailures(0); setIsRetrying(true); fetchStatus(); }}
-                disabled={isRetrying}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {isRetrying ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                {isRetrying ? 'Retrying...' : 'Retry'}
-              </button>
-            </div>
-          </div>
-        );
-      }
-      return (
-        <div className="flex items-center gap-2 text-sm text-gray-400">
-          <Clock size={16} />
-          Matching job not found yet. It will appear shortly after submission.
-        </div>
-      );
-    }
-
-    if (job.status === 'pending') {
-      return (
-        <div className="flex items-start gap-2 text-sm text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
-          <Clock size={16} className="mt-0.5 shrink-0" />
+      {!error && job && (job.status === 'pending' || job.status === 'processing') && (
+        <div className="flex items-center gap-3 text-gray-300">
+          <Loader2 size={18} className="animate-spin text-brand-400" />
           <div>
-            <div className="font-medium">Matching pending</div>
-            <div className="text-amber-200/80 mt-0.5">
-              This report is queued for semantic matching.
-              {aiStatus && aiStatus !== 'ready' ? ` AI model status: ${aiStatus}.` : ''}
-            </div>
+            <p className="text-sm">Analyzing similar incidents...</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {job.status === 'pending' ? 'Queued for analysis' : 'Comparing against existing reports'}
+            </p>
           </div>
         </div>
-      );
-    }
+      )}
 
-    if (job.status === 'processing') {
-      return (
-        <div className="flex items-start gap-2 text-sm text-blue-300 bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
-          <Loader2 size={16} className="mt-0.5 shrink-0 animate-spin" />
-          <div>
-            <div className="font-medium">Matching in progress</div>
-            <div className="text-blue-200/80 mt-0.5">Analyzing semantic similarity against existing incidents.</div>
-          </div>
-        </div>
-      );
-    }
-
-    if (job.status === 'failed') {
-      return (
-        <div className="flex items-start gap-2 text-sm text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+      {!error && job?.status === 'failed' && (
+        <div className="flex items-start gap-2 text-yellow-200 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 text-sm">
           <AlertCircle size={16} className="mt-0.5 shrink-0" />
           <div>
-            <div className="font-medium">Matching failed</div>
-            <div className="text-red-200/80 mt-0.5">
-              {job.error_message || 'The matching job failed. Please try again later.'}
-            </div>
+            <p>Matching analysis could not be completed right now.</p>
+            <p className="text-yellow-300/80 text-xs mt-1">{job.error_message || 'Please check back later.'}</p>
           </div>
         </div>
-      );
-    }
+      )}
 
-    // completed
-    const suggestions = job.suggestions || [];
-    if (suggestions.length === 0) {
-      return (
-        <div className="flex items-start gap-2 text-sm text-gray-300 bg-gray-800/40 border border-gray-700 rounded-lg p-3">
-          <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-gray-400" />
+      {!error && timedOut && job && (job.status === 'pending' || job.status === 'processing') && (
+        <div className="flex items-center gap-2 text-gray-400 text-sm">
+          <Clock size={16} />
+          <span>Matching is taking longer than expected. Check back later.</span>
+        </div>
+      )}
+
+      {!error && job?.status === 'completed' && job.suggestion_count === 0 && (
+        <div className="flex items-center gap-2 text-green-300 text-sm">
+          <CheckCircle2 size={16} />
+          <span>No potential matches found yet.</span>
+        </div>
+      )}
+
+      {!error && job?.status === 'completed' && job.suggestion_count > 0 && (
+        <div className="flex items-start gap-3 bg-brand-800/40 border border-brand-700/40 rounded-lg p-4">
+          <ShieldCheck size={18} className="text-brand-400 mt-0.5 shrink-0" />
           <div>
-            <div className="font-medium">No potential matches found</div>
-            <div className="text-gray-400 mt-0.5">No existing incidents exceeded the semantic similarity threshold.</div>
+            <p className="text-sm text-gray-200">
+              Potential matches found and awaiting moderator review.
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              Matching details are reviewed by administrators before any incidents are merged.
+            </p>
           </div>
         </div>
-      );
-    }
-
-    return (
-      <div className="space-y-3">
-        <div className="flex items-start gap-2 text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
-          <Search size={16} className="mt-0.5 shrink-0" />
-          <div>
-            <div className="font-medium">Potential matches found</div>
-            <div className="text-emerald-200/80 mt-0.5">
-              Review suggestions below. Scores show semantic similarity, not duplication probability.
-            </div>
-          </div>
-        </div>
-        <div className="space-y-3">
-          {suggestions.map((s) => (
-            <SuggestionCard key={s.id} suggestion={s} />
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <section className="mt-10 border-t border-gray-800 pt-8">
-      <div className="flex items-center gap-2 mb-4">
-        <Search size={18} className="text-brand-400" />
-        <h2 className="text-lg font-semibold text-white">Potential Matches</h2>
-      </div>
-      {renderContent()}
-    </section>
+      )}
+    </div>
   );
 }

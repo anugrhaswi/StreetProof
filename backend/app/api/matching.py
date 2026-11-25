@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.auth.dependencies import get_current_admin
 from app.database import get_db
 from app.models import MatchingJob, MatchSuggestion, Report
-from app.schemas import MatchingJobResponse, MatchSuggestionResponse
+from app.schemas import MatchingJobResponse, MatchSuggestionResponse, PublicMatchingStatusResponse
 
 router = APIRouter(prefix="/api/matching", tags=["matching"])
 
@@ -36,9 +37,9 @@ def _suggestion_to_response(s: MatchSuggestion) -> MatchSuggestionResponse:
     )
 
 
-@router.get("/reports/{report_id}", response_model=MatchingJobResponse | None)
-def get_matching_status(report_id: str, db: Session = Depends(get_db)) -> MatchingJobResponse | None:
-    """Return latest matching job and suggestions for a report. Used by frontend polling."""
+@router.get("/reports/{report_id}", response_model=PublicMatchingStatusResponse | None)
+def get_matching_status(report_id: str, db: Session = Depends(get_db)) -> PublicMatchingStatusResponse | None:
+    """Return minimal public matching status for frontend polling. No internal evidence exposed."""
     report = db.get(Report, report_id)
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
@@ -52,30 +53,23 @@ def get_matching_status(report_id: str, db: Session = Depends(get_db)) -> Matchi
     if not job:
         return None
 
-    suggestions = list(
-        db.scalars(
-            select(MatchSuggestion)
-            .options(selectinload(MatchSuggestion.incident), selectinload(MatchSuggestion.matched_report))
-            .where(MatchSuggestion.report_id == report_id)
-            .order_by(MatchSuggestion.similarity_score.desc())
-        ).all()
-    )
+    suggestion_count = db.scalar(
+        select(func.count()).select_from(MatchSuggestion).where(MatchSuggestion.report_id == report_id)
+    ) or 0
 
-    return MatchingJobResponse(
-        id=job.id,
-        report_id=job.report_id,
+    return PublicMatchingStatusResponse(
         status=job.status.value,
-        error_message=job.error_message,
-        attempts=job.attempts,
-        created_at=job.created_at,
-        updated_at=job.updated_at,
-        completed_at=job.completed_at,
-        suggestions=[_suggestion_to_response(s) for s in suggestions],
+        suggestion_count=int(suggestion_count),
+        error_message="Matching failed. Please try again later." if job.status.value == "failed" else None,
     )
 
 
 @router.get("/suggestions/{report_id}", response_model=list[MatchSuggestionResponse])
-def get_suggestions(report_id: str, db: Session = Depends(get_db)) -> list[MatchSuggestionResponse]:
+def get_suggestions(
+    report_id: str,
+    _admin: dict[str, str] = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+) -> list[MatchSuggestionResponse]:
     report = db.get(Report, report_id)
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")

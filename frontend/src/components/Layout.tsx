@@ -1,6 +1,6 @@
-import { Plus } from 'lucide-react';
+import { Menu, Plus, X } from 'lucide-react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 interface LayoutProps {
   children: ReactNode;
@@ -12,6 +12,7 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const isHome = location.pathname === '/';
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
     <div className={`bg-brand-950 text-gray-100 flex flex-col ${isHome ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
@@ -27,7 +28,7 @@ export default function Layout({ children }: LayoutProps) {
             <span className="text-lg sm:text-xl font-semibold tracking-tight text-white truncate">StreetProof</span>
           </Link>
 
-          <div className="flex items-center gap-3 sm:gap-5">
+          <div className="flex items-center gap-2 sm:gap-5">
             <div className="hidden sm:flex items-center gap-5">
               <NavLink to="/reports" className={linkClass}>Reports</NavLink>
             </div>
@@ -38,8 +39,28 @@ export default function Layout({ children }: LayoutProps) {
               <Plus size={15} />
               <span>Report Issue</span>
             </Link>
+            <button
+              type="button"
+              onClick={() => setMobileOpen((v) => !v)}
+              className="sm:hidden inline-flex items-center justify-center w-9 h-9 rounded-md border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500"
+              aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileOpen}
+            >
+              {mobileOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
           </div>
         </nav>
+        {mobileOpen && (
+          <div className="sm:hidden border-t border-gray-800 bg-[#1a1a1a]/98 px-4 py-3">
+            <NavLink
+              to="/reports"
+              className={({ isActive }) => `block py-2 text-sm ${isActive ? 'text-white' : 'text-gray-300'}`}
+              onClick={() => setMobileOpen(false)}
+            >
+              Reports
+            </NavLink>
+          </div>
+        )}
       </header>
 
       <main className={isHome ? 'flex-1 min-h-0' : 'flex-1'}>{children}</main>

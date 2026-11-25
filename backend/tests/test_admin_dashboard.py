@@ -97,7 +97,11 @@ def test_dashboard_stats_match_database(client: TestClient, db_session: Session)
     data = res.json()
     assert data["total_reports"] == 2
     assert data["total_incidents"] == 1
+    assert data["open_incidents"] == 1
+    assert data["closed_incidents"] == 0
+    assert data["merged_incidents"] == 0
     assert data["pending_suggestions"] == 1
+    assert data["pending_jobs"] == 0
     assert data["completed_jobs"] == 1
     assert data["failed_jobs"] == 1
     assert data["reports_last_7_days"] == 1
@@ -123,7 +127,11 @@ def test_dashboard_empty_database(client: TestClient):
     assert stats.json() == {
         "total_reports": 0,
         "total_incidents": 0,
+        "open_incidents": 0,
+        "closed_incidents": 0,
+        "merged_incidents": 0,
         "pending_suggestions": 0,
+        "pending_jobs": 0,
         "completed_jobs": 0,
         "failed_jobs": 0,
         "reports_last_7_days": 0,

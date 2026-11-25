@@ -24,7 +24,25 @@ def upgrade() -> None:
     dialect = bind.dialect.name
 
     if dialect == "postgresql":
-        op.execute("ALTER TYPE suggestionstatusenum ADD VALUE IF NOT EXISTS 'rejected'")
+        # Correct type name and label case. SQLAlchemy persists enum member names.
+        op.execute(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'suggestion_status_enum') THEN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM pg_enum e
+                        JOIN pg_type t ON t.oid = e.enumtypid
+                        WHERE t.typname = 'suggestion_status_enum' AND e.enumlabel = 'REJECTED'
+                    ) THEN
+                        ALTER TYPE suggestion_status_enum ADD VALUE 'REJECTED';
+                    END IF;
+                END IF;
+            END
+            $$;
+            """
+        )
     else:
         # SQLite stores enums as VARCHAR; SQLAlchemy Enum(check constraint) is updated in models.
         # Existing rows remain valid. No table rebuild needed.

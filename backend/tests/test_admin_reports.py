@@ -13,6 +13,9 @@ from app.models import (
     MatchingJob,
     MatchingJobStatusEnum,
     MatchSuggestion,
+    MergeEvent,
+    MergeExecution,
+    MergeExecutionStatusEnum,
     Report,
     StatusEnum,
     SuggestionStatusEnum,
@@ -273,3 +276,166 @@ def test_delete_report_cascades_matched_report_suggestions(client: TestClient, d
     assert res.status_code == 200
     sugg = db_session.scalar(select(func.count()).select_from(MatchSuggestion).where(MatchSuggestion.matched_report_id == ids["report_b1"]))
     assert sugg == 0
+
+
+def _seed_merge_history(db: Session, *, source_report: Report, source_incident: Incident, target_report: Report, target_incident: Incident) -> MergeEvent:
+    suggestion = db.scalar(
+        select(MatchSuggestion).where(
+            MatchSuggestion.report_id == source_report.id,
+            MatchSuggestion.incident_id == target_incident.id,
+        )
+    )
+    if suggestion is None:
+        suggestion = MatchSuggestion(
+            report_id=source_report.id,
+            incident_id=target_incident.id,
+            matched_report_id=target_report.id,
+            similarity_score=0.95,
+            status=SuggestionStatusEnum.AUTO_MERGED,
+        )
+        db.add(suggestion)
+        db.flush()
+    else:
+        suggestion.status = SuggestionStatusEnum.AUTO_MERGED
+        suggestion.matched_report_id = target_report.id
+        db.add(suggestion)
+        db.flush()
+    event = MergeEvent(
+        source_incident_id=source_incident.id,
+        target_incident_id=target_incident.id,
+        report_id=source_report.id,
+        matched_report_id=target_report.id,
+        action="AUTOMATIC_INCIDENT_MERGE",
+        actor="system",
+        transferred_report_ids=[source_report.id],
+        target_incident_report_ids_before=[target_report.id],
+        source_incident_status_before="open",
+        target_incident_status_before="open",
+        candidate_classification="AUTO_MERGE_CANDIDATE",
+        heuristic_score=0.95,
+        policy_snapshot={"test": True},
+    )
+    db.add(event)
+    db.flush()
+    execution = MergeExecution(
+        match_suggestion_id=suggestion.id,
+        merge_event_id=event.id,
+        status=MergeExecutionStatusEnum.SUCCEEDED,
+        attempt_count=1,
+        idempotency_key=f"merge:{source_report.id}:{target_incident.id}",
+    )
+    db.add(execution)
+    db.commit()
+    db.refresh(event)
+    return event
+
+
+def test_delete_report_blocked_when_merge_event_references_report(client: TestClient, db_session: Session, upload_dir):
+    ids = _seed(db_session, upload_dir)
+    db_session.expire_all()
+    source_report = db_session.get(Report, ids["report_a1"])
+    source_incident = db_session.get(Incident, ids["incident_a"])
+    target_report = db_session.get(Report, ids["report_b1"])
+    target_incident = db_session.get(Incident, ids["incident_b"])
+    assert source_report and source_incident and target_report and target_incident
+    event = _seed_merge_history(
+        db_session,
+        source_report=source_report,
+        source_incident=source_incident,
+        target_report=target_report,
+        target_incident=target_incident,
+    )
+    event_id = event.id
+    execution_count_before = db_session.scalar(select(func.count()).select_from(MergeExecution)) or 0
+    audit_count_before = db_session.scalar(select(func.count()).select_from(AdminAuditLog)) or 0
+
+    _login(client)
+    headers = {"X-CSRF-Token": client.cookies.get("streetproof_csrf_token", "")}
+    res = client.delete(f"/api/admin/reports/{source_report.id}", headers=headers)
+    assert res.status_code == 409
+    assert "merge history" in res.json()["detail"].lower()
+
+    db_session.expire_all()
+    assert db_session.get(Report, source_report.id) is not None
+    assert db_session.get(MergeEvent, event_id) is not None
+    assert (db_session.scalar(select(func.count()).select_from(MergeExecution)) or 0) == execution_count_before
+    assert (db_session.scalar(select(func.count()).select_from(AdminAuditLog)) or 0) == audit_count_before
+
+
+def test_delete_last_report_preserves_merge_target_incident(client: TestClient, db_session: Session, upload_dir):
+    ids = _seed(db_session, upload_dir)
+    db_session.expire_all()
+    source_report = db_session.get(Report, ids["report_a1"])
+    source_incident = db_session.get(Incident, ids["incident_a"])
+    target_report = db_session.get(Report, ids["report_b1"])
+    target_incident = db_session.get(Incident, ids["incident_b"])
+    assert source_report and source_incident and target_report and target_incident
+    event = _seed_merge_history(
+        db_session,
+        source_report=source_report,
+        source_incident=source_incident,
+        target_report=target_report,
+        target_incident=target_incident,
+    )
+
+    _login(client)
+    headers = {"X-CSRF-Token": client.cookies.get("streetproof_csrf_token", "")}
+    blocked = client.delete(f"/api/admin/reports/{target_report.id}", headers=headers)
+    assert blocked.status_code == 409
+
+    merge_target = Incident(
+        title="Merge target",
+        description="Target incident",
+        category=CategoryEnum.SIGNAGE,
+        latitude=3.0,
+        longitude=3.0,
+        status=StatusEnum.OPEN,
+    )
+    db_session.add(merge_target)
+    db_session.flush()
+    deletable = Report(
+        description="Deletable report on merge target",
+        category=CategoryEnum.SIGNAGE,
+        latitude=3.0,
+        longitude=3.0,
+        image_path="uploads/deletable.jpg",
+        sha256_hash="d" * 64,
+        phash="3333444455556666",
+        phash_size=8,
+        incident_id=merge_target.id,
+    )
+    db_session.add(deletable)
+    db_session.flush()
+    hist_event = MergeEvent(
+        source_incident_id=source_incident.id,
+        target_incident_id=merge_target.id,
+        report_id=source_report.id,
+        matched_report_id=target_report.id,
+        action="MANUAL_INCIDENT_MERGE",
+        actor="admin",
+        transferred_report_ids=[source_report.id],
+        target_incident_report_ids_before=[deletable.id],
+        source_incident_status_before="open",
+        target_incident_status_before="open",
+        candidate_classification="REVIEW_CANDIDATE",
+        heuristic_score=0.8,
+        policy_snapshot={"test": True},
+    )
+    db_session.add(hist_event)
+    db_session.commit()
+
+    deletable_id = deletable.id
+    merge_target_id = merge_target.id
+    hist_event_id = hist_event.id
+    event_id = event.id
+    res = client.delete(f"/api/admin/reports/{deletable_id}", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["deleted"] is True
+    assert data["incident_deleted"] is False
+
+    db_session.expire_all()
+    assert db_session.get(Report, deletable_id) is None
+    assert db_session.get(Incident, merge_target_id) is not None
+    assert db_session.get(MergeEvent, hist_event_id) is not None
+    assert db_session.get(MergeEvent, event_id) is not None

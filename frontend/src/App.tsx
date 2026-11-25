@@ -14,7 +14,8 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminReportsList from './pages/admin/ReportsList';
 import AdminReportDetailPage from './pages/admin/ReportDetail';
 import MatchReview from './pages/admin/MatchReview';
-import PlaceholderPage from './pages/admin/PlaceholderPage';
+import AdminIncidentsList from './pages/admin/IncidentsList';
+import AdminIncidentDetail from './pages/admin/AdminIncidentDetail';
 
 function PublicLayout() {
   return (
@@ -50,10 +51,8 @@ export default function App() {
                   <Route path="/reports/:reportId" element={<AdminReportDetailPage />} />
                   <Route path="/match-review" element={<MatchReview />} />
                   <Route path="/matches" element={<MatchReview />} />
-                  <Route
-                    path="/incidents"
-                    element={<PlaceholderPage title="Incidents" description="Incident management will be available in a later phase." />}
-                  />
+                  <Route path="/incidents" element={<AdminIncidentsList />} />
+                  <Route path="/incidents/:id" element={<AdminIncidentDetail />} />
                   <Route path="*" element={<AdminDashboard />} />
                 </Routes>
               </ProtectedRoute>

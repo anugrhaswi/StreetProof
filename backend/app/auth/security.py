@@ -74,7 +74,7 @@ def csrf_tokens_match(cookie_token: str | None, header_token: str | None) -> boo
 
 
 def get_admin_password_hash() -> str:
-    # Hash the configured admin password on demand; cached by lru_cache in caller if needed.
+    # Hash the configured admin password on demand; avoid storing plaintext outside config.
     # For a single admin from env, hashing at check keeps config simple.
     return hash_password(settings.admin_password)
 

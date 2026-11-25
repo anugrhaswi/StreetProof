@@ -42,18 +42,28 @@ def _configured_password_hash() -> str:
 
 
 def _cookie_secure() -> bool:
-    return not settings.debug
+    # Secure=true in production (HTTPS). Local development/test over HTTP keep Secure=false.
+    return settings.cookie_secure()
+
+
+def _cookie_samesite() -> str:
+    # Lax supports same-site admin flows and local dev. Cross-origin cookie auth
+    # (e.g. Vercel frontend -> Render API on different site) requires SameSite=None
+    # and Secure=true, which is intentionally not enabled by default here.
+    return "lax"
 
 
 def _set_auth_cookies(response: Response, username: str) -> None:
     max_age = settings.admin_session_expire_minutes * 60
+    cookie_secure = _cookie_secure()
+    cookie_samesite = _cookie_samesite()
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=create_session_token(username),
         max_age=max_age,
         httponly=True,
-        secure=_cookie_secure(),
-        samesite="lax",
+        secure=cookie_secure,
+        samesite=cookie_samesite,
         path="/",
     )
     # Double-submit CSRF cookie is JS-readable; header must match on state-changing requests.
@@ -62,8 +72,8 @@ def _set_auth_cookies(response: Response, username: str) -> None:
         value=create_csrf_token(),
         max_age=max_age,
         httponly=False,
-        secure=_cookie_secure(),
-        samesite="lax",
+        secure=cookie_secure,
+        samesite=cookie_samesite,
         path="/",
     )
 

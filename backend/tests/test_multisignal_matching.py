@@ -199,3 +199,82 @@ def test_radius_filter_excludes_far_candidate_with_coords():
         **BASE_THRESHOLDS,
     )
     assert results == []
+
+
+def test_exact_sha256_far_apart_same_category_is_review_not_auto_merge():
+    c = classify_candidate(
+        sha256_match=True,
+        phash_sim=1.0,
+        text_sim=0.2,
+        geo_distance_m=5000.0,
+        category_match=True,
+        has_target_coords=True,
+        has_candidate_coords=True,
+        **BASE_THRESHOLDS,
+    )
+    assert c == CandidateClassification.REVIEW_CANDIDATE
+
+
+def test_exact_sha256_far_apart_category_disagreement_is_review_not_auto_merge():
+    c = classify_candidate(
+        sha256_match=True,
+        phash_sim=1.0,
+        text_sim=0.1,
+        geo_distance_m=5000.0,
+        category_match=False,
+        has_target_coords=True,
+        has_candidate_coords=True,
+        **BASE_THRESHOLDS,
+    )
+    assert c == CandidateClassification.REVIEW_CANDIDATE
+
+
+def test_exact_sha256_missing_coords_category_disagreement_is_review_not_auto_merge():
+    c = classify_candidate(
+        sha256_match=True,
+        phash_sim=1.0,
+        text_sim=0.1,
+        geo_distance_m=None,
+        category_match=False,
+        has_target_coords=True,
+        has_candidate_coords=False,
+        **BASE_THRESHOLDS,
+    )
+    assert c == CandidateClassification.REVIEW_CANDIDATE
+
+
+def test_find_candidates_keeps_exact_sha256_outside_radius_for_review():
+    results = find_candidate_incidents_multisignal(
+        target_report_id="t1",
+        target_incident_id="ti",
+        target_embedding=[1.0, 0.0],
+        target_sha256="samehash",
+        target_phash="f" * 16,
+        target_category="pothole",
+        target_lat=27.7,
+        target_lng=85.3,
+        candidate_reports=[
+            {
+                "report_id": "r1",
+                "incident_id": "i1",
+                "report_description": "far but same image",
+                "embedding": [0.0, 1.0],
+                "sha256_hash": "samehash",
+                "phash": "f" * 16,
+                "category": "garbage",
+                "latitude": 28.7,
+                "longitude": 86.3,
+                "incident_title": "I1",
+                "incident_category": "garbage",
+                "incident_status": "open",
+                "incident_latitude": 28.7,
+                "incident_longitude": 86.3,
+            }
+        ],
+        max_candidates=10,
+        **BASE_THRESHOLDS,
+    )
+    assert len(results) == 1
+    assert results[0].sha256_match is True
+    assert results[0].candidate_classification == CandidateClassification.REVIEW_CANDIDATE
+    assert results[0].geo_distance_meters is not None and results[0].geo_distance_meters > BASE_THRESHOLDS["matching_radius_meters"]
