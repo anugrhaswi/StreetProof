@@ -34,9 +34,23 @@ Thumbs.db
 
 # Uploads / data
 uploads/
+backend/uploads/
+data/
+backend/data/
 *.db
 *.sqlite3
+
+# Model cache / weights
+backend/model_cache/
+model_cache/
+*.bin
+*.safetensors
+*.pt
+*.onnx
 
 # Logs
 *.log
 npm-debug.log*
+
+# Local launcher
+start-streetproof.bat
