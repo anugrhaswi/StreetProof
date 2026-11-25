@@ -35,6 +35,7 @@ class IncidentResponse(IncidentBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    merged_into_incident_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -63,6 +64,20 @@ class IncidentDetailResponse(IncidentResponse):
     reports: list[ReportResponse] = []
 
 
+class IncidentMapResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    title: str
+    description: str
+    category: CategoryEnum
+    latitude: float
+    longitude: float
+    status: StatusEnum
+    report_count: int
+    created_at: datetime
+
+
 T = TypeVar("T")
 
 
@@ -85,6 +100,21 @@ class SuggestionStatusEnum(str, Enum):
     PENDING = "pending"
     REVIEWED = "reviewed"
     DISMISSED = "dismissed"
+    REJECTED = "rejected"
+    AUTO_MERGED = "auto_merged"
+    SUPERSEDED = "superseded"
+
+
+class MergeExecutionStatusEnum(str, Enum):
+    PENDING = "pending"
+    RETRYING = "retrying"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class ActorTypeEnum(str, Enum):
+    ADMIN = "admin"
+    SYSTEM = "system"
 
 
 class MatchSuggestionResponse(BaseModel):
@@ -182,3 +212,94 @@ class AdminReportDeleteResponse(BaseModel):
     report_id: str
     incident_deleted: bool
     image_deleted: bool
+
+
+class MergeEventListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    source_incident_id: str | None
+    target_incident_id: str
+    report_id: str
+    matched_report_id: str | None
+    action: str
+    actor: str
+    candidate_classification: str
+    heuristic_score: float | None = None
+    created_at: datetime
+    reversed_at: datetime | None = None
+
+
+class MergeEventDetailResponse(MergeEventListItem):
+    transferred_report_ids: list[str]
+    target_incident_report_ids_before: list[str]
+    source_incident_status_before: str
+    target_incident_status_before: str
+    sha256_match: bool | None = None
+    phash_hamming_distance: int | None = None
+    phash_similarity: float | None = None
+    text_similarity: float | None = None
+    geo_distance_meters: float | None = None
+    category_match: bool | None = None
+    policy_snapshot: dict
+    reversal_merge_event_id: str | None = None
+    merge_execution_status: str | None = None
+    merge_execution_error: str | None = None
+
+
+class AdminMatchReport(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    description: str
+    category: CategoryEnum
+    latitude: float
+    longitude: float
+    image_path: str
+    created_at: datetime
+    incident_id: str
+    incident_status: StatusEnum | None = None
+
+
+class AdminMatchSuggestionListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    report_id: str
+    incident_id: str
+    matched_report_id: str
+    similarity_score: float
+    status: SuggestionStatusEnum
+    candidate_classification: str | None = None
+    created_at: datetime
+    sha256_match: bool | None = None
+    phash_hamming_distance: int | None = None
+    phash_similarity: float | None = None
+    text_similarity: float | None = None
+    geo_distance_meters: float | None = None
+    category_match: bool | None = None
+    report: AdminMatchReport
+    matched_report: AdminMatchReport
+    incident_title: str | None = None
+
+
+class AdminMatchSuggestionDetailResponse(AdminMatchSuggestionListItem):
+    merge_event_id: str | None = None
+    merge_execution_status: str | None = None
+    merge_execution_error: str | None = None
+    reversible: bool = False
+
+
+class AcceptMatchResponse(BaseModel):
+    suggestion_id: str
+    status: SuggestionStatusEnum
+    merge_event_id: str
+
+
+class RejectMatchRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class RejectMatchResponse(BaseModel):
+    suggestion_id: str
+    status: SuggestionStatusEnum

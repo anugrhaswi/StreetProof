@@ -11,6 +11,8 @@ from app.api.matching import router as matching_router
 from app.api.reports import router as reports_router
 from app.auth.router import router as admin_auth_router
 from app.api.admin_dashboard import router as admin_dashboard_router
+from app.api.admin_matches import router as admin_matches_router
+from app.api.admin_merges import router as admin_merges_router
 from app.api.admin_reports import router as admin_reports_router
 from app.config import settings
 from app.services.embeddings import EmbeddingService
@@ -61,4 +63,6 @@ app.include_router(incidents_router)
 app.include_router(matching_router)
 app.include_router(admin_auth_router)
 app.include_router(admin_dashboard_router)
+app.include_router(admin_matches_router)
+app.include_router(admin_merges_router)
 app.include_router(admin_reports_router)

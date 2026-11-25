@@ -26,6 +26,16 @@ class Settings(BaseSettings):
     text_similarity_threshold: float = 0.75
     auto_merge_text_threshold: float = 0.85
 
+    # Phase D2: automatic merge (disabled by default)
+    auto_merge_enabled: bool = False
+    auto_merge_min_score_margin: float = 0.15
+    auto_merge_require_geo: bool = True
+    auto_merge_require_category: bool = True
+    auto_merge_require_text_support: bool = True
+    merge_max_retries: int = 3
+    merge_retry_base_delay_seconds: int = 30
+    merge_retry_max_delay_seconds: int = 300
+
     # Phase A: admin authentication
     secret_key: str = "change-me-in-production"
     admin_username: str = "admin"

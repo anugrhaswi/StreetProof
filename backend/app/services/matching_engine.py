@@ -1,16 +1,21 @@
-"""Multisignal duplicate detection engine (Phase D1).
+"""Multisignal duplicate detection engine (Phase D1/D2).
 
-Detection/classification only. No automatic merging.
+D1: detection/classification. D2: adds merge eligibility/ambiguity helpers.
+No automatic merging is performed by this module.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from app.services.embeddings import EmbeddingService
 from app.services.geo import haversine_distance, valid_coords
 from app.services.image_fingerprint import hamming_distance, phash_similarity
+
+if TYPE_CHECKING:
+    from app.config import Settings
 
 
 class CandidateClassification(str, Enum):
@@ -301,6 +306,42 @@ def find_candidate_incidents_multisignal(
 
     ranked = sorted(best_by_incident.values(), key=lambda r: r.heuristic_score, reverse=True)
     return ranked[:max_candidates]
+
+
+def is_ambiguous_auto_merge(
+    ranked_candidates: list[MultisignalCandidate],
+    min_score_margin: float,
+) -> bool:
+    """True when top two auto-merge candidates are too close to merge safely."""
+    if len(ranked_candidates) < 2:
+        return False
+    top = ranked_candidates[0]
+    second = ranked_candidates[1]
+    if top.candidate_classification != CandidateClassification.AUTO_MERGE_CANDIDATE:
+        return False
+    if second.candidate_classification != CandidateClassification.AUTO_MERGE_CANDIDATE:
+        # Second isn't auto-merge candidate; top is dominant enough by classification.
+        return False
+    return (top.heuristic_score - second.heuristic_score) < float(min_score_margin)
+
+
+def build_policy_snapshot(settings: "Settings") -> dict:
+    """Immutable policy snapshot for MergeEvent auditability. Never include secrets."""
+    return {
+        "algorithm_version": "d2-multisignal-v1",
+        "phash_hash_size": int(settings.phash_hash_size),
+        "phash_similarity_threshold": float(settings.phash_similarity_threshold),
+        "phash_review_threshold": float(settings.phash_review_threshold),
+        "text_similarity_threshold": float(settings.text_similarity_threshold),
+        "auto_merge_text_threshold": float(settings.auto_merge_text_threshold),
+        "matching_radius_meters": int(settings.matching_radius_meters),
+        "auto_merge_radius_meters": int(settings.auto_merge_radius_meters),
+        "auto_merge_enabled": bool(settings.auto_merge_enabled),
+        "auto_merge_min_score_margin": float(settings.auto_merge_min_score_margin),
+        "auto_merge_require_geo": bool(settings.auto_merge_require_geo),
+        "auto_merge_require_category": bool(settings.auto_merge_require_category),
+        "auto_merge_require_text_support": bool(settings.auto_merge_require_text_support),
+    }
 
 
 def find_candidate_incidents(

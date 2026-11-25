@@ -11,9 +11,22 @@ export interface Incident {
   latitude: number;
   longitude: number;
   status: Status;
+  merged_into_incident_id?: string | null;
   created_at: string;
   updated_at: string;
   reports?: Report[];
+}
+
+export interface IncidentMapItem {
+  id: string;
+  title: string;
+  description: string;
+  category: Category;
+  latitude: number;
+  longitude: number;
+  status: Status;
+  report_count: number;
+  created_at: string;
 }
 
 export interface Report {
@@ -46,13 +59,15 @@ export interface HealthResponse {
 
 export type MatchingJobStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
+export type SuggestionStatus = 'pending' | 'reviewed' | 'dismissed' | 'rejected' | 'auto_merged' | 'superseded';
+
 export interface MatchSuggestion {
   id: string;
   report_id: string;
   incident_id: string;
   matched_report_id: string;
   similarity_score: number;
-  status: 'pending' | 'reviewed' | 'dismissed';
+  status: SuggestionStatus;
   created_at: string;
   incident_title: string | null;
   incident_category: Category | null;
@@ -209,6 +224,13 @@ export async function getIncident(id: string): Promise<Incident> {
   return handleResponse<Incident>(response);
 }
 
+export async function getIncidentsForMap(): Promise<IncidentMapItem[]> {
+  const response = await fetch(`${API_BASE_URL}/api/incidents/map`, {
+    headers: { Accept: 'application/json' },
+  });
+  return handleResponse<IncidentMapItem[]>(response);
+}
+
 export async function getMatchingStatus(reportId: string): Promise<MatchingJob | null> {
   const response = await fetch(`${API_BASE_URL}/api/matching/reports/${reportId}`, {
     headers: { Accept: 'application/json' },
@@ -328,3 +350,130 @@ export function imageUrl(imagePath: string): string {
 }
 
 export { API_BASE_URL };
+export interface AdminMatchReport {
+  id: string;
+  description: string;
+  category: Category;
+  latitude: number;
+  longitude: number;
+  image_path: string;
+  created_at: string;
+  incident_id: string;
+  incident_status: Status | null;
+}
+
+export interface AdminMatchSuggestionListItem {
+  id: string;
+  report_id: string;
+  incident_id: string;
+  matched_report_id: string;
+  similarity_score: number;
+  status: SuggestionStatus;
+  candidate_classification: string | null;
+  created_at: string;
+  sha256_match: boolean | null;
+  phash_hamming_distance: number | null;
+  phash_similarity: number | null;
+  text_similarity: number | null;
+  geo_distance_meters: number | null;
+  category_match: boolean | null;
+  report: AdminMatchReport;
+  matched_report: AdminMatchReport;
+  incident_title: string | null;
+}
+
+export interface AdminMatchSuggestionDetail extends AdminMatchSuggestionListItem {
+  merge_event_id: string | null;
+  merge_execution_status: string | null;
+  merge_execution_error: string | null;
+  reversible: boolean;
+}
+
+export interface AdminMatchesParams {
+  page?: number;
+  page_size?: number;
+  status?: SuggestionStatus;
+  search?: string;
+  category?: Category;
+  classification?: string;
+}
+
+export interface MergeEventListItem {
+  id: string;
+  source_incident_id: string | null;
+  target_incident_id: string;
+  report_id: string;
+  matched_report_id: string | null;
+  action: string;
+  actor: string;
+  candidate_classification: string;
+  heuristic_score: number | null;
+  created_at: string;
+  reversed_at: string | null;
+}
+
+export async function getAdminMatches(params: AdminMatchesParams = {}): Promise<PaginatedResponse<AdminMatchSuggestionListItem>> {
+  const q = new URLSearchParams();
+  if (params.page) q.set('page', String(params.page));
+  if (params.page_size) q.set('page_size', String(params.page_size));
+  if (params.status) q.set('status', params.status);
+  if (params.search) q.set('search', params.search);
+  if (params.category) q.set('category', params.category);
+  if (params.classification) q.set('classification', params.classification);
+  const response = await fetch(`${API_BASE_URL}/api/admin/matches?${q.toString()}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  });
+  return handleResponse<PaginatedResponse<AdminMatchSuggestionListItem>>(response);
+}
+
+export async function getAdminMatch(suggestionId: string): Promise<AdminMatchSuggestionDetail> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/matches/${suggestionId}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  });
+  return handleResponse<AdminMatchSuggestionDetail>(response);
+}
+
+export async function acceptAdminMatch(suggestionId: string): Promise<{ suggestion_id: string; status: SuggestionStatus; merge_event_id: string }> {
+  const csrf = getCsrfToken();
+  const response = await fetch(`${API_BASE_URL}/api/admin/matches/${suggestionId}/accept`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { Accept: 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+  });
+  return handleResponse(response);
+}
+
+export async function rejectAdminMatch(suggestionId: string, reason?: string): Promise<{ suggestion_id: string; status: SuggestionStatus }> {
+  const csrf = getCsrfToken();
+  const response = await fetch(`${API_BASE_URL}/api/admin/matches/${suggestionId}/reject`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+    body: JSON.stringify({ reason: reason ?? null }),
+  });
+  return handleResponse(response);
+}
+
+export async function getAdminMergeEvents(page = 1, pageSize = 20): Promise<PaginatedResponse<MergeEventListItem>> {
+  const q = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  const response = await fetch(`${API_BASE_URL}/api/admin/merges?${q.toString()}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  });
+  return handleResponse<PaginatedResponse<MergeEventListItem>>(response);
+}
+
+export async function reverseAdminMerge(mergeEventId: string): Promise<MergeEventListItem> {
+  const csrf = getCsrfToken();
+  const response = await fetch(`${API_BASE_URL}/api/admin/merges/${mergeEventId}/reverse`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { Accept: 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+  });
+  return handleResponse<MergeEventListItem>(response);
+}

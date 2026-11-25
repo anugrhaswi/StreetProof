@@ -10,6 +10,7 @@ from app.auth.dependencies import get_current_admin, require_csrf
 from app.config import settings
 from app.database import get_db
 from app.models import (
+    ActorTypeEnum,
     AdminAuditLog,
     Incident,
     MatchingJob,
@@ -225,7 +226,9 @@ def delete_admin_report(
     latest_job = max(report.matching_jobs, key=lambda j: j.created_at) if report.matching_jobs else None
 
     audit = AdminAuditLog(
+        actor_type=ActorTypeEnum.ADMIN,
         admin_username=_admin["username"],
+        system_actor=None,
         action="REPORT_DELETED",
         target_type="report",
         target_id=report.id,

@@ -1,4 +1,4 @@
-# StreetProof
+﻿# StreetProof
 
 AI-powered civic infrastructure issue intelligence platform.
 
@@ -10,12 +10,12 @@ Phase 2 adds persistent report submission with image uploads, SQLite storage, Al
 
 ```
 streetproof/
-├── frontend/   React + Vite + TypeScript + Tailwind CSS
-├── backend/    FastAPI + SQLAlchemy + Alembic
-├── AGENTS.md   Development rules
-├── README.md
-├── .gitignore
-└── .env.example
+â”œâ”€â”€ frontend/   React + Vite + TypeScript + Tailwind CSS
+â”œâ”€â”€ backend/    FastAPI + SQLAlchemy + Alembic
+â”œâ”€â”€ AGENTS.md   Development rules
+â”œâ”€â”€ README.md
+â”œâ”€â”€ .gitignore
+â””â”€â”€ .env.example
 ```
 
 ## Prerequisites
@@ -80,7 +80,7 @@ npm run dev
 
 Open http://localhost:5173
 
-Frontend config: `VITE_API_BASE_URL` in `frontend/.env`.
+Frontend config: `VITE_API_BASE_URL` and `VITE_GOOGLE_MAPS_API_KEY` in `frontend/.env` (see `frontend/.env.example`). Enable Maps JavaScript API, Places API, and Geocoding API in Google Cloud Console; restrict the key to HTTP referrers (e.g. `localhost:5173` for dev).
 
 ## API Endpoints
 
@@ -96,9 +96,21 @@ Frontend config: `VITE_API_BASE_URL` in `frontend/.env`.
 - `POST /api/admin/login` (admin login, sets HTTP-only session + CSRF cookie)
 - `POST /api/admin/logout` (requires authenticated session + CSRF header)
 - `GET /api/admin/session` (current admin auth status)
+- `GET /api/admin/matches` (match moderation queue, filters/pagination)
+- `GET /api/admin/matches/{id}` (match comparison detail)
+- `POST /api/admin/matches/{id}/accept` (manual accept; auth+CSRF)
+- `POST /api/admin/matches/{id}/reject` (manual reject; auth+CSRF)
+- `GET /api/admin/merges` / `POST /api/admin/merges/{id}/reverse` (merge history/reversal)
 - Static uploads: `/uploads/*`
 
 Categories: `pothole, streetlight, garbage, graffiti, sidewalk, signage, drainage, other`
+
+## Phase D3: Admin Match Moderation
+
+- Admin UI: `/admin/match-review` (also `/admin/matches`) for reviewing `PENDING`/`REVIEW_CANDIDATE` suggestions.
+- Actions: accept (manual merge via D2 merge service), reject, view merge history, reverse merge when safe.
+- Safety: admin auth + CSRF on mutating endpoints, state validation, transactional merges, no duplicate merge logic.
+- `AUTO_MERGE_ENABLED` defaults to `false`. Enable in deployment only after moderation/reversal verification by setting env var `AUTO_MERGE_ENABLED=true` (Render dashboard/env). Keep false in local/dev unless explicitly testing.
 
 ## Testing
 
@@ -130,3 +142,4 @@ Automated tests use mocked embeddings and a temporary file-based SQLite database
 | Build frontend | `cd frontend && npm run build` |
 | Backend tests | `cd backend && venv\Scripts\activate && python -m pytest tests -v` |
 | Install CPU deps | `cd backend && venv\Scripts\activate && pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install -r requirements.txt` |
+

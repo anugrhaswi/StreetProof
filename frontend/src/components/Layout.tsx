@@ -1,5 +1,5 @@
-import { Shield } from 'lucide-react';
-import { NavLink } from 'react-router-dom';
+import { Plus } from 'lucide-react';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 
 interface LayoutProps {
@@ -7,32 +7,48 @@ interface LayoutProps {
 }
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
-  `hover:text-gray-200 transition-colors ${isActive ? 'text-white' : 'text-gray-400'}`;
+  `text-sm hover:text-white transition-colors ${isActive ? 'text-white' : 'text-gray-400'}`;
 
 export default function Layout({ children }: LayoutProps) {
+  const location = useLocation();
+  const isHome = location.pathname === '/';
+
   return (
-    <div className="min-h-screen bg-brand-950 text-gray-100 flex flex-col">
-      <header className="border-b border-gray-800/80 bg-brand-950/80 backdrop-blur-sm sticky top-0 z-10">
-        <nav className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <NavLink to="/" className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-lg bg-brand-500/10 border border-brand-500/20">
-              <Shield size={20} className="text-brand-400" />
+    <div className={`bg-brand-950 text-gray-100 flex flex-col ${isHome ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
+      <header className="border-b border-white/10 bg-[#1a1a1a]/95 backdrop-blur-sm sticky top-0 z-30">
+        <nav className="max-w-7xl mx-auto px-4 sm:px-6 h-[64px] sm:h-[72px] flex items-center justify-between gap-4">
+          <Link to="/" className="flex items-center gap-3 shrink-0 min-w-0" aria-label="StreetProof home">
+            <img
+              src="/brand/logo.jpeg"
+              alt="StreetProof logo"
+              className="h-11 w-11 sm:h-14 sm:w-14 object-contain shrink-0"
+              draggable={false}
+            />
+            <span className="text-lg sm:text-xl font-semibold tracking-tight text-white truncate">StreetProof</span>
+          </Link>
+
+          <div className="flex items-center gap-3 sm:gap-5">
+            <div className="hidden sm:flex items-center gap-5">
+              <NavLink to="/reports" className={linkClass}>Reports</NavLink>
             </div>
-            <span className="text-lg font-semibold tracking-tight text-white">StreetProof</span>
-          </NavLink>
-          <div className="flex items-center gap-6 text-sm">
-            <NavLink to="/report" className={linkClass}>Report</NavLink>
-            <NavLink to="/reports" className={linkClass}>Reports</NavLink>
-            <span className="text-gray-600 cursor-default">Map</span>
+            <Link
+              to="/report"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-500 hover:bg-brand-400 text-white text-sm font-medium transition-colors shrink-0"
+            >
+              <Plus size={15} />
+              <span>Report Issue</span>
+            </Link>
           </div>
         </nav>
       </header>
 
-      <main className="flex-1">{children}</main>
+      <main className={isHome ? 'flex-1 min-h-0' : 'flex-1'}>{children}</main>
 
-      <footer className="border-t border-gray-800/60 py-6 text-center text-sm text-gray-500">
-        StreetProof &mdash; Civic infrastructure issue intelligence
-      </footer>
+      {!isHome && (
+        <footer className="border-t border-gray-800/60 py-6 text-center text-sm text-gray-500">
+          StreetProof &mdash; Civic infrastructure issue intelligence
+        </footer>
+      )}
     </div>
   );
 }

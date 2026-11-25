@@ -147,6 +147,8 @@ def app(db_engine, mock_embedding_service, upload_dir):
     from app.api.matching import router as matching_router
     from app.api.reports import router as reports_router
     from app.api.admin_dashboard import router as admin_dashboard_router
+    from app.api.admin_matches import router as admin_matches_router
+    from app.api.admin_merges import router as admin_merges_router
     from app.api.admin_reports import router as admin_reports_router
     from app.auth.router import router as admin_auth_router
     from app.database import get_db
@@ -181,7 +183,9 @@ def app(db_engine, mock_embedding_service, upload_dir):
     test_app.include_router(matching_router)
     test_app.include_router(admin_auth_router)
     test_app.include_router(admin_dashboard_router)
+    test_app.include_router(admin_matches_router)
     test_app.include_router(admin_reports_router)
+    test_app.include_router(admin_merges_router)
 
     from app.config import settings as app_settings
     old_upload_dir = app_settings.upload_dir
