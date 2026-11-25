@@ -20,6 +20,23 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
+    bind = op.get_bind()
+    dialect = bind.dialect.name
+
+    merge_execution_status_enum = sa.Enum(
+        'PENDING', 'RETRYING', 'SUCCEEDED', 'FAILED', name='merge_execution_status_enum'
+    )
+    actor_type_enum = sa.Enum('ADMIN', 'SYSTEM', name='actor_type_enum')
+    if dialect == 'postgresql':
+        # Create enum types explicitly; use create_type=False in column DDL to avoid duplicate CREATE TYPE.
+        merge_execution_status_enum.create(bind, checkfirst=True)
+        actor_type_enum.create(bind, checkfirst=True)
+        merge_execution_status_enum = sa.Enum(
+            'PENDING', 'RETRYING', 'SUCCEEDED', 'FAILED',
+            name='merge_execution_status_enum', create_type=False,
+        )
+        actor_type_enum = sa.Enum('ADMIN', 'SYSTEM', name='actor_type_enum', create_type=False)
+
     op.create_table(
         'merge_events',
         sa.Column('id', sa.String(length=36), nullable=False),
@@ -62,7 +79,7 @@ def upgrade() -> None:
         sa.Column('id', sa.String(length=36), nullable=False),
         sa.Column('match_suggestion_id', sa.String(length=36), nullable=False),
         sa.Column('merge_event_id', sa.String(length=36), nullable=True),
-        sa.Column('status', sa.Enum('PENDING', 'RETRYING', 'SUCCEEDED', 'FAILED', name='merge_execution_status_enum'), nullable=False),
+        sa.Column('status', merge_execution_status_enum, nullable=False),
         sa.Column('attempt_count', sa.Integer(), nullable=False),
         sa.Column('last_error', sa.Text(), nullable=True),
         sa.Column('next_retry_at', sa.DateTime(timezone=True), nullable=True),
@@ -95,7 +112,7 @@ def upgrade() -> None:
 
     # Admin audit logs: preserve existing rows, add actor model and merge_event link
     with op.batch_alter_table('admin_audit_logs') as batch_op:
-        batch_op.add_column(sa.Column('actor_type', sa.Enum('ADMIN', 'SYSTEM', name='actor_type_enum'), nullable=True))
+        batch_op.add_column(sa.Column('actor_type', actor_type_enum, nullable=True))
         batch_op.add_column(sa.Column('system_actor', sa.String(length=150), nullable=True))
         batch_op.add_column(sa.Column('merge_event_id', sa.String(length=36), nullable=True))
         batch_op.alter_column('admin_username', existing_type=sa.VARCHAR(length=150), nullable=True)
@@ -104,7 +121,7 @@ def upgrade() -> None:
     op.execute("UPDATE admin_audit_logs SET actor_type='SYSTEM', system_actor='legacy' WHERE actor_type IS NULL")
 
     with op.batch_alter_table('admin_audit_logs') as batch_op:
-        batch_op.alter_column('actor_type', existing_type=sa.Enum('ADMIN', 'SYSTEM', name='actor_type_enum'), nullable=False)
+        batch_op.alter_column('actor_type', existing_type=actor_type_enum, nullable=False)
         batch_op.create_index(op.f('ix_admin_audit_logs_merge_event_id'), ['merge_event_id'], unique=False)
         batch_op.create_foreign_key(
             'fk_admin_audit_logs_merge_event_id_merge_events',
@@ -120,8 +137,6 @@ def upgrade() -> None:
         )
 
     # Match suggestions: extend status enum to include AUTO_MERGED/SUPERSEDED/REJECTED.
-    bind = op.get_bind()
-    dialect = bind.dialect.name
     suggestion_status_values = ['PENDING', 'REVIEWED', 'DISMISSED', 'REJECTED', 'AUTO_MERGED', 'SUPERSEDED']
     if dialect == 'postgresql':
         # Enum labels must be literals in ALTER TYPE ... ADD VALUE; bind params are not supported.
@@ -171,3 +186,8 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_merge_events_reversal_merge_event_id'), table_name='merge_events')
     op.drop_index(op.f('ix_merge_events_report_id'), table_name='merge_events')
     op.drop_table('merge_events')
+
+    bind = op.get_bind()
+    if bind.dialect.name == 'postgresql':
+        sa.Enum(name='merge_execution_status_enum').drop(bind, checkfirst=True)
+        sa.Enum(name='actor_type_enum').drop(bind, checkfirst=True)
