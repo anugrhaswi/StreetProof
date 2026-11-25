@@ -90,8 +90,16 @@ export default function PotentialMatches({ reportId }: PotentialMatchesProps) {
       <div className="flex items-center justify-between gap-3 mb-4">
         <h2 className="text-lg font-semibold">Potential Matching Incidents</h2>
         {aiHealth && aiHealth.status !== 'ready' && (
-          <span className="text-xs px-2.5 py-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 text-yellow-300">
-            AI {aiHealth.status === 'failed' ? 'unavailable' : 'loading'}
+          <span className={`text-xs px-2.5 py-1 rounded-full border ${
+            aiHealth.status === 'disabled'
+              ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
+              : 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300'
+          }`}>
+            {aiHealth.status === 'disabled'
+              ? 'Lightweight matching'
+              : aiHealth.status === 'failed'
+                ? 'AI unavailable'
+                : 'AI loading'}
           </span>
         )}
       </div>
@@ -114,7 +122,9 @@ export default function PotentialMatches({ reportId }: PotentialMatchesProps) {
         <div className="flex items-center gap-3 text-gray-300">
           <Loader2 size={18} className="animate-spin text-brand-400" />
           <div>
-            <p className="text-sm">Analyzing similar incidents...</p>
+            <p className="text-sm">
+              {aiHealth?.status === 'disabled' ? 'Checking for potential duplicates...' : 'Analyzing similar incidents...'}
+            </p>
             <p className="text-xs text-gray-500 mt-0.5">
               {job.status === 'pending' ? 'Queued for analysis' : 'Comparing against existing reports'}
             </p>

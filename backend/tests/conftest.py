@@ -112,10 +112,12 @@ def db_session(db_engine):
 def mock_embedding_service():
     mock_service = MagicMock()
     mock_service.is_ready.return_value = True
+    mock_service.is_enabled.return_value = True
     mock_service.get_status.return_value = {
         "status": "ready",
         "model_name": "sentence-transformers/all-MiniLM-L6-v2",
         "error": None,
+        "semantic_matching_enabled": True,
     }
 
     # Predefined vectors for semantic categories

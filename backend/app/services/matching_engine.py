@@ -187,12 +187,16 @@ def find_candidate_incidents_multisignal(
     text_similarity_threshold: float,
     auto_merge_text_threshold: float,
     max_candidates: int,
+    semantic_matching_enabled: bool = True,
 ) -> list[MultisignalCandidate]:
     """Rank candidate incidents by multisignal evidence.
 
     candidate_reports items include: report_id, incident_id, report_description, embedding,
     sha256_hash, phash, category, latitude, longitude, incident_title, incident_category,
     incident_status, incident_latitude, incident_longitude.
+
+    When semantic_matching_enabled is False, text similarity is intentionally left as None
+    (no fabricated semantic score) and classification relies on lightweight signals.
     """
     if max_candidates <= 0:
         return []
@@ -231,7 +235,7 @@ def find_candidate_incidents_multisignal(
 
         text_sim: float | None = None
         cand_embedding = cand.get("embedding")
-        if isinstance(target_embedding, list) and isinstance(cand_embedding, list):
+        if semantic_matching_enabled and isinstance(target_embedding, list) and isinstance(cand_embedding, list):
             raw = EmbeddingService.cosine_similarity(target_embedding, cand_embedding)
             text_sim = max(0.0, min(1.0, float(raw)))
 
@@ -255,6 +259,11 @@ def find_candidate_incidents_multisignal(
             text_similarity_threshold=text_similarity_threshold,
             auto_merge_text_threshold=auto_merge_text_threshold,
         )
+
+        # Conservative: semantic evidence unavailable in lightweight mode, so do not
+        # classify candidates as high-confidence auto-merge candidates.
+        if not semantic_matching_enabled and classification == CandidateClassification.AUTO_MERGE_CANDIDATE:
+            classification = CandidateClassification.REVIEW_CANDIDATE
 
         if classification == CandidateClassification.NO_MATCH:
             continue

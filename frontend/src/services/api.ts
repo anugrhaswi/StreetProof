@@ -105,9 +105,10 @@ export interface MatchingJob {
 }
 
 export interface AIHealthResponse {
-  status: 'not_loaded' | 'loading' | 'ready' | 'failed';
+  status: 'not_loaded' | 'loading' | 'ready' | 'failed' | 'disabled';
   model_name: string;
   error: string | null;
+  semantic_matching_enabled: boolean;
 }
 
 export interface AdminSession {

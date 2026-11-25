@@ -1,4 +1,4 @@
-# CPU-only PyTorch (install torch from CPU index first, then other requirements from PyPI)
+# CPU-only PyTorch for local/full-AI setup (install torch from CPU index first)
 # Step 1: pip install torch --index-url https://download.pytorch.org/whl/cpu
-# Step 2: pip install -r requirements.txt
+# Step 2: pip install -r requirements-ai.txt
 torch>=2.0.0

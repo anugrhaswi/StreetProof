@@ -29,10 +29,14 @@ async def lifespan(_app: FastAPI):
     # Ensure runtime directories exist.
     Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
     Path("./data").mkdir(parents=True, exist_ok=True)
-    Path(settings.embedding_cache_dir).mkdir(parents=True, exist_ok=True)
+    if settings.semantic_matching_is_enabled():
+        Path(settings.embedding_cache_dir).mkdir(parents=True, exist_ok=True)
+        # Background model warm-up; API becomes available immediately.
+        EmbeddingService.get_instance().initialize_background()
+    else:
+        # Explicit no-op: do not import/load torch/sentence-transformers in lightweight mode.
+        EmbeddingService.get_instance().initialize_background()
 
-    # Background model warm-up; API becomes available immediately.
-    EmbeddingService.get_instance().initialize_background()
     await matching_worker.start()
     try:
         yield

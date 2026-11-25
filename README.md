@@ -79,7 +79,7 @@ Civic issue reports are often duplicated, noisy, and difficult to triage. Multip
 | Background matching worker deployment model | Partially implemented | Worker runs inside FastAPI lifespan. Suitable for single always-on instance; not a separate scalable worker process. |
 | Cross-origin admin cookie auth | Partially implemented | Default cookie policy is `SameSite=Lax`, `Secure` in production. Cross-site Vercel frontend -> Render API would require deliberate `SameSite=None; Secure` and strict CORS review. |
 | Rate limiting | Partially implemented | Admin login rate limiter is in-memory per process; not shared across multiple instances. |
-| AI model runtime | Partially implemented | SentenceTransformer model loads in background and uses local cache dir; first run may download model unless cached. |
+| AI model runtime | Partially implemented | Semantic mode loads SentenceTransformer in background and uses local cache dir; first run may download model unless cached. Lightweight mode disables model load/import. |
 | Browser/manual E2E QA | Not verified in this CLI | UI flows, mobile behavior, and live browser console checks were not run here. |
 
 ### Not Implemented / Explicitly Not Claimed
@@ -114,7 +114,7 @@ flowchart LR
 - **Backend API:** FastAPI app with routers for health, reports, incidents, matching, admin auth, admin dashboard/reports/incidents/matches/merges.
 - **Database:** SQLAlchemy ORM models; SQLite for local dev, PostgreSQL/Supabase supported through normalized `DATABASE_URL`.
 - **File storage:** Local upload directory served at `/uploads`.
-- **AI/matching:** In-process embedding service + DB-backed matching worker.
+- **AI/matching:** In-process embedding service + DB-backed matching worker. Full semantic mode is optional; lightweight mode preserves non-semantic matching signals.
 
 ## Tech Stack
 
@@ -125,7 +125,7 @@ flowchart LR
 | Map | MapLibre GL 6.19.0, OpenFreeMap Liberty style | Worker registered via `?worker&url`. |
 | Backend | Python, FastAPI, SQLAlchemy, Pydantic, Alembic | REST API and ORM/migrations. |
 | Auth | itsdangerous, passlib[argon2], FastAPI cookies | Admin session + CSRF. |
-| AI/Matching | sentence-transformers `all-MiniLM-L6-v2`, torch, scikit-learn, ImageHash, Pillow | Multisignal duplicate detection. |
+| AI/Matching | ImageHash, Pillow, geo/category logic (default/lightweight); optional sentence-transformers `all-MiniLM-L6-v2` + torch + scikit-learn (`requirements-ai.txt`) | Multisignal duplicate detection; semantic text similarity optional. |
 | Database | SQLite (dev), PostgreSQL/Supabase (target) | `psycopg[binary]` for PostgreSQL. |
 | Testing | pytest, pytest-asyncio, httpx | Backend tests under `backend/tests`. |
 
@@ -216,9 +216,14 @@ The matching pipeline is implemented in backend services and runs asynchronously
 |---|---|---|
 | SHA-256 | `image_fingerprint.compute_sha256` | Exact image duplicate detection. |
 | pHash | `image_fingerprint.compute_phash` + Hamming/similarity | Perceptual image similarity. |
-| Text similarity | SentenceTransformer embedding + cosine similarity | Description semantic similarity. |
+| Text similarity | SentenceTransformer embedding + cosine similarity (semantic mode only) | Description semantic similarity. In lightweight mode this is intentionally unavailable (`None`), not fabricated. |
 | Geo distance | Haversine distance | Spatial proximity. |
 | Category match | Category equality | Conflict/consistency check. |
+
+### Modes
+
+- **Full semantic (local/dev when enabled):** installs `requirements-ai.txt`, sets `SEMANTIC_MATCHING_ENABLED=true` (or default dev), loads SentenceTransformer in background, computes embeddings/text similarity.
+- **Lightweight (Render Free / production default):** installs `requirements.txt`, `SEMANTIC_MATCHING_ENABLED=false` (or production default), does **not** import/load torch/sentence-transformers, keeps SHA-256/pHash/geo/category/matching jobs/suggestions/moderation/audit.
 
 ### Classification
 
@@ -286,9 +291,10 @@ Use `.env.example` as the source template. Do not commit real secrets.
 | `DATABASE_POOL_RECYCLE_SECONDS` | No | `1800` | PostgreSQL pool recycle. |
 | `DATABASE_POOL_PRE_PING` | No | `true` | PostgreSQL connection health check. |
 | `UPLOAD_DIR` | No | `./uploads` | Local image storage path. |
-| `EMBEDDING_MODEL_NAME` | No | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model. |
+| `SEMANTIC_MATCHING_ENABLED` | No | unset | `true` enables full semantic model; `false` forces lightweight matching; unset defaults to enabled in dev/test and disabled in production. |
+| `EMBEDDING_MODEL_NAME` | No | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model (semantic mode). |
 | `EMBEDDING_MODEL_REVISION` | No | `c9745ed1d9f207416be6d2e6f8de32d1f16199bf` | Pinned model revision. |
-| `EMBEDDING_CACHE_DIR` | No | `./model_cache` | Local model cache. |
+| `EMBEDDING_CACHE_DIR` | No | `./model_cache` | Local model cache (semantic mode). |
 | `MATCHING_THRESHOLD` | No | `0.30` | Legacy/semantic threshold config present. |
 | `MAX_CANDIDATES` | No | `10` | Max candidate incidents. |
 | `MATCHING_WORKER_INTERVAL_SECONDS` | No | `5` | Worker poll interval. |
@@ -383,11 +389,15 @@ source venv/bin/activate
 Install dependencies:
 
 ```bash
+# Lightweight backend (Render/default production-safe)
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
+
+# Full local AI (semantic matching)
+pip install -r requirements-ai.txt
 ```
 
-For CPU-only torch installs, follow the note in `backend/requirements-cpu.txt` if needed.
+For CPU-only torch installs, follow `backend/requirements-cpu.txt` (install CPU torch first, then `requirements-ai.txt`).
 
 Run migrations:
 
@@ -481,11 +491,11 @@ npm run lint
 npm run build
 ```
 
-### Latest verified local results (this development session)
+### Latest verified local results (this CLI session)
 
-- `pytest tests/test_postgres_compat.py tests/test_production_config.py -q --tb=short` → **13 passed, 1 skipped**
-- `pytest tests -q --tb=short` → **101 passed, 1 skipped**
-- Frontend build was previously reported passing in the development history; rerun `npm run build` in your environment before deployment.
+- `pytest tests/test_semantic_lightweight_mode.py -q --tb=short` -> **6 passed**
+- `pytest tests -q --tb=short` -> **107 passed, 1 skipped**
+- `npm run build` (frontend) -> **passed** (Vite build completed; chunk-size warning only)
 
 ## Deployment
 
@@ -510,7 +520,7 @@ Deployment is **partially implemented / prepared**, not fully production-verifie
 - **Local uploads are ephemeral on Render disk.** `image_service.py` stores files under `UPLOAD_DIR`; without persistent object storage, uploaded images can be lost on redeploy/restart.
 - **Matching worker is embedded in FastAPI lifespan.** Run one always-on instance unless/until worker is extracted.
 - **In-memory login rate limiter** is not shared across instances.
-- **Model cache/download** may affect cold start; configure persistent cache/storage as needed.
+- **Model cache/download** may affect cold start in semantic mode; configure persistent cache/storage as needed. For Render Free, keep `SEMANTIC_MATCHING_ENABLED=false` and use lightweight `requirements.txt`.
 
 ### Frontend (Vercel-style deployment target)
 
@@ -532,7 +542,7 @@ Base URL defaults to `http://localhost:8000`.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/health` | Service health. |
-| GET | `/api/health/ai` | Embedding model status. |
+| GET | `/api/health/ai` | AI/semantic matching status (`ready/loading/failed/disabled` + `semantic_matching_enabled`). |
 | POST | `/api/reports` | Submit report (multipart image + fields). |
 | GET | `/api/reports` | List reports (paginated). |
 | GET | `/api/reports/{report_id}` | Report detail. |
@@ -584,7 +594,7 @@ Admin routes require authenticated admin session; state-changing routes also req
 - Matching worker is embedded in the API process and not horizontally scalable as-is.
 - Admin login rate limiting is in-memory and not shared across instances.
 - `SameSite=Lax` cookie default may not work for cross-site admin deployments without deliberate auth/CORS changes.
-- AI model loading can be heavy on first run/cold start depending on cache availability.
+- Semantic AI model loading can be heavy on first run/cold start depending on cache availability; lightweight mode avoids this but has no text-semantic signal.
 - No automated browser E2E suite in this CLI verification; manual UI QA is still needed.
 - Vercel/Render deployment configuration and live production smoke tests were not executed in this CLI session.
 - Supabase migration was verified on an empty project; existing production data migration scenarios require separate planning.

@@ -160,7 +160,8 @@ class TestMatchingIntegration:
         # Simulate AI unavailable by making worker see not ready.
         not_ready_mock = type("S", (), {
             "is_ready": lambda self: False,
-            "get_status": lambda self: {"status": "failed", "model_name": "test", "error": "not loaded"},
+            "is_enabled": lambda self: True,
+            "get_status": lambda self: {"status": "failed", "model_name": "test", "error": "not loaded", "semantic_matching_enabled": True},
             "encode": lambda self, t: None,
         })()
 

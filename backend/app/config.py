@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
 
     # Phase 3: semantic matching / embeddings
+    semantic_matching_enabled: bool | None = None
     embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_model_revision: str = "c9745ed1d9f207416be6d2e6f8de32d1f16199bf"
     embedding_cache_dir: str = "./model_cache"
@@ -110,6 +111,21 @@ class Settings(BaseSettings):
             return normalize_database_url(value)
         return value
 
+    @field_validator("semantic_matching_enabled", mode="before")
+    @classmethod
+    def _normalize_semantic_matching_enabled(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            raw = value.strip().lower()
+            if raw == "":
+                return None
+            if raw in {"1", "true", "yes", "on"}:
+                return True
+            if raw in {"0", "false", "no", "off"}:
+                return False
+        return value
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _parse_cors_origins(cls, value: object) -> object:
@@ -145,6 +161,16 @@ class Settings(BaseSettings):
     @property
     def is_postgresql(self) -> bool:
         return is_postgresql_database_url(self.database_url)
+
+    def semantic_matching_is_enabled(self) -> bool:
+        """Resolve effective semantic matching mode.
+
+        - Explicit SEMANTIC_MATCHING_ENABLED wins.
+        - Default: disabled in production, enabled in development/test.
+        """
+        if self.semantic_matching_enabled is not None:
+            return bool(self.semantic_matching_enabled)
+        return not self.is_production
 
     def normalized_cors_origins(self) -> list[str]:
         origins = self.cors_origins

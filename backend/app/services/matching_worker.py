@@ -129,14 +129,17 @@ class MatchingWorker:
 
     def _process_next_job(self) -> None:
         embedding_service = EmbeddingService.get_instance()
-        if not embedding_service.is_ready():
+        semantic_enabled = settings.semantic_matching_is_enabled() and embedding_service.is_enabled()
+        # When semantic matching is enabled, wait for model readiness. In lightweight
+        # mode, continue with non-semantic signals only.
+        if semantic_enabled and not embedding_service.is_ready():
             return
         db = SessionLocal()
         try:
             job_id = self._claim_next_job(db)
             if not job_id:
                 return
-            self._process_job(db, job_id, embedding_service)
+            self._process_job(db, job_id, embedding_service, semantic_enabled=semantic_enabled)
         finally:
             db.close()
 
@@ -171,7 +174,14 @@ class MatchingWorker:
                 logger.exception("Failed to compute pHash for report %s", report.id)
         return changed
 
-    def _process_job(self, db: Session, job_id: str, embedding_service: EmbeddingService) -> None:
+    def _process_job(
+        self,
+        db: Session,
+        job_id: str,
+        embedding_service: EmbeddingService,
+        *,
+        semantic_enabled: bool,
+    ) -> None:
         job = db.get(MatchingJob, job_id)
         if not job:
             return
@@ -182,7 +192,7 @@ class MatchingWorker:
                 return
 
             changed = self._ensure_fingerprints(report)
-            if not report.embedding:
+            if semantic_enabled and not report.embedding and embedding_service.is_ready():
                 embedding = embedding_service.encode(report.description)
                 if embedding is None:
                     raise RuntimeError("Failed to generate embedding for report")
@@ -232,7 +242,7 @@ class MatchingWorker:
             results = find_candidate_incidents_multisignal(
                 target_report_id=report.id,
                 target_incident_id=report.incident_id,
-                target_embedding=report.embedding,
+                target_embedding=report.embedding if semantic_enabled else None,
                 target_sha256=report.sha256_hash,
                 target_phash=report.phash,
                 target_category=report.category.value if report.category else None,
@@ -246,6 +256,7 @@ class MatchingWorker:
                 text_similarity_threshold=float(settings.text_similarity_threshold),
                 auto_merge_text_threshold=float(settings.auto_merge_text_threshold),
                 max_candidates=int(settings.max_candidates),
+                semantic_matching_enabled=semantic_enabled,
             )
 
             self._persist_suggestions(db, report, job, results)
@@ -344,6 +355,10 @@ class MatchingWorker:
     def _attempt_auto_merge(self, db: Session, report_id: str, results: list) -> None:
         if not settings.auto_merge_enabled:
             return
+        # Conservative safety: never auto-merge when semantic matching is disabled,
+        # because text evidence is unavailable by design.
+        if not settings.semantic_matching_is_enabled():
+            return
         # Only top AUTO_MERGE_CANDIDATE may auto-merge.
         top = results[0] if results else None
         if not top or top.candidate_classification != CandidateClassification.AUTO_MERGE_CANDIDATE:
@@ -420,6 +435,8 @@ class MatchingWorker:
 
     def _process_due_merge_retries(self) -> None:
         if not settings.auto_merge_enabled:
+            return
+        if not settings.semantic_matching_is_enabled():
             return
         db = SessionLocal()
         try:
@@ -523,6 +540,7 @@ class MatchingWorker:
                 text_similarity_threshold=float(settings.text_similarity_threshold),
                 auto_merge_text_threshold=float(settings.auto_merge_text_threshold),
                 max_candidates=int(settings.max_candidates),
+                semantic_matching_enabled=settings.semantic_matching_is_enabled(),
             )
             event = execute_auto_merge(
                 db,

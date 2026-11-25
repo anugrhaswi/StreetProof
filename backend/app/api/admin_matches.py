@@ -216,10 +216,11 @@ def _recompute_ranked_candidates(db: Session, report: Report):
     target_emb = report.embedding
     if hasattr(target_emb, "tolist"):
         target_emb = target_emb.tolist()
+    semantic_enabled = settings.semantic_matching_is_enabled() and EmbeddingService.get_instance().is_enabled()
     return find_candidate_incidents_multisignal(
         target_report_id=report.id,
         target_incident_id=report.incident_id,
-        target_embedding=target_emb if isinstance(target_emb, list) else None,
+        target_embedding=(target_emb if isinstance(target_emb, list) else None) if semantic_enabled else None,
         target_sha256=report.sha256_hash,
         target_phash=report.phash,
         target_category=report.category.value if hasattr(report.category, "value") else str(report.category),
@@ -233,6 +234,7 @@ def _recompute_ranked_candidates(db: Session, report: Report):
         text_similarity_threshold=settings.text_similarity_threshold,
         auto_merge_text_threshold=settings.auto_merge_text_threshold,
         max_candidates=max(50, settings.max_candidates),
+        semantic_matching_enabled=semantic_enabled,
     )
 
 

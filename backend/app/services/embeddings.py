@@ -2,8 +2,10 @@
 
 Model inference is CPU-bound; callers should run encode() via run_in_executor
 when called from async contexts to avoid blocking the event loop.
-"""
 
+When semantic matching is disabled, this service acts as a lightweight no-op:
+no torch/sentence-transformers imports, no model load, no background thread.
+"""
 from __future__ import annotations
 
 import logging
@@ -24,6 +26,7 @@ class EmbeddingService:
         self._status: str = "not_loaded"
         self._error: str | None = None
         self._init_lock = threading.Lock()
+        self._enabled: bool = settings.semantic_matching_is_enabled()
 
     @classmethod
     def get_instance(cls) -> "EmbeddingService":
@@ -37,18 +40,36 @@ class EmbeddingService:
     def status(self) -> str:
         return self._status
 
-    def get_status(self) -> dict[str, str | None]:
+    def is_enabled(self) -> bool:
+        return bool(self._enabled)
+
+    def get_status(self) -> dict[str, str | bool | None]:
+        enabled = self.is_enabled()
+        # Keep status explicit when semantic matching is disabled.
+        status = "disabled" if not enabled else self._status
         return {
-            "status": self._status,
+            "status": status,
             "model_name": settings.embedding_model_name,
             "error": self._error,
+            "semantic_matching_enabled": enabled,
         }
 
     def is_ready(self) -> bool:
-        return self._status == "ready" and self._model is not None
+        return self.is_enabled() and self._status == "ready" and self._model is not None
 
     def initialize_background(self) -> None:
-        """Start model initialization in a daemon thread. Non-blocking."""
+        """Start model initialization in a daemon thread when enabled.
+
+        Disabled mode is a deliberate no-op: no imports, no model, no thread.
+        """
+        if not self.is_enabled():
+            with self._init_lock:
+                self._model = None
+                self._status = "disabled"
+                self._error = None
+            logger.info("Semantic matching disabled; skipping embedding model initialization")
+            return
+
         with self._init_lock:
             if self._status in ("loading", "ready"):
                 return
@@ -59,6 +80,12 @@ class EmbeddingService:
         thread.start()
 
     def _initialize(self) -> None:
+        if not self.is_enabled():
+            with self._init_lock:
+                self._model = None
+                self._status = "disabled"
+                self._error = None
+            return
         try:
             # Limit torch threads to reduce CPU contention on small instances.
             try:
@@ -75,7 +102,11 @@ class EmbeddingService:
             cache_dir = Path(settings.embedding_cache_dir)
             cache_dir.mkdir(parents=True, exist_ok=True)
 
-            logger.info("Loading embedding model %s (rev=%s)", settings.embedding_model_name, settings.embedding_model_revision)
+            logger.info(
+                "Loading embedding model %s (rev=%s)",
+                settings.embedding_model_name,
+                settings.embedding_model_revision,
+            )
             model = SentenceTransformer(
                 settings.embedding_model_name,
                 revision=settings.embedding_model_revision,
@@ -97,7 +128,10 @@ class EmbeddingService:
                 self._error = str(exc)[:500]
 
     def encode(self, text: str) -> list[float] | None:
-        """Encode text into an embedding vector. Returns None if model unavailable."""
+        """Encode text into an embedding vector.
+
+        Returns None when disabled/unavailable. Callers must handle None safely.
+        """
         if not self.is_ready():
             return None
         try:

@@ -175,6 +175,7 @@ class AIHealthResponse(BaseModel):
     status: str
     model_name: str
     error: str | None = None
+    semantic_matching_enabled: bool = False
 
 
 class DashboardStatsResponse(BaseModel):
