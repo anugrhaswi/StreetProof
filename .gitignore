@@ -10,6 +10,10 @@ env/
 AGENTS.md
 ntg.txt
 
+# Local AI skill artifacts
+.agents/
+skills-lock.json
+
 # Environment
 .env
 .env.local
