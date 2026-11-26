@@ -31,6 +31,7 @@ export default function Layout({ children }: LayoutProps) {
           <div className="flex items-center gap-2 sm:gap-5">
             <div className="hidden sm:flex items-center gap-5">
               <NavLink to="/reports" className={linkClass}>Reports</NavLink>
+              <NavLink to="/about" className={linkClass}>About</NavLink>
             </div>
             <Link
               to="/report"
@@ -58,6 +59,13 @@ export default function Layout({ children }: LayoutProps) {
               onClick={() => setMobileOpen(false)}
             >
               Reports
+            </NavLink>
+            <NavLink
+              to="/about"
+              className={({ isActive }) => `block py-2 text-sm ${isActive ? 'text-white' : 'text-gray-300'}`}
+              onClick={() => setMobileOpen(false)}
+            >
+              About
             </NavLink>
           </div>
         )}

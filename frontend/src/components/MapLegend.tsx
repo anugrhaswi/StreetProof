@@ -1,3 +1,5 @@
+import { Info } from 'lucide-react';
+
 const CATEGORIES = [
   { key: 'pothole', label: 'Pothole' },
   { key: 'streetlight', label: 'Streetlight' },
@@ -23,6 +25,23 @@ export default function MapLegend() {
           <span>Closed</span>
         </div>
       </div>
+
+      <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Map guide</p>
+      <div className="space-y-2 text-xs text-gray-400 mb-3">
+        <div className="flex items-center gap-2">
+          <span className="w-4 h-4 rounded-full bg-red-500 border border-red-900 shrink-0" />
+          <span>Marker: a reported incident. Icon shows category, color shows status.</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="w-5 h-5 rounded-full bg-blue-600 border border-white/70 text-[10px] text-white inline-flex items-center justify-center shrink-0">3</span>
+          <span>Cluster: nearby incidents grouped together. Click to zoom in.</span>
+        </div>
+        <div className="flex items-start gap-2">
+          <Info size={14} className="text-gray-500 mt-0.5 shrink-0" />
+          <span>Click a marker to open incident details. Use +/− or pinch to zoom.</span>
+        </div>
+      </div>
+
       <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Categories</p>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-400">
         {CATEGORIES.map((c) => (
@@ -33,7 +52,7 @@ export default function MapLegend() {
         ))}
       </div>
       <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
-        Marker icons show category; color shows status. Merged incidents are represented by their surviving incident.
+        Merged incidents are represented by their surviving incident.
       </p>
     </div>
   );

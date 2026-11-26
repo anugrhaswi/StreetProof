@@ -4,6 +4,7 @@ import { ToastProvider } from './components/Toast';
 import { AdminAuthProvider } from './contexts/AdminAuthContext';
 import ProtectedRoute from './components/admin/ProtectedRoute';
 import Home from './pages/Home';
+import About from './pages/About';
 import Report from './pages/Report';
 import Reports from './pages/Reports';
 import ReportDetail from './pages/ReportDetail';
@@ -32,6 +33,7 @@ export default function App() {
         <Routes>
           <Route element={<PublicLayout />}>
             <Route path="/" element={<Home />} />
+            <Route path="/about" element={<About />} />
             <Route path="/report" element={<Report />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/reports/:id" element={<ReportDetail />} />

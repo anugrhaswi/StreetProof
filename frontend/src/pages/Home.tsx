@@ -1,10 +1,13 @@
-import { useState } from 'react';
-import { AlertCircle, ChevronUp, Filter, Layers, Loader2, RefreshCw, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { AlertCircle, ChevronUp, Filter, Info, Layers, Loader2, RefreshCw, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import IncidentMap from '../components/IncidentMap';
 import MapFilters from '../components/MapFilters';
 import MapLegend from '../components/MapLegend';
+import WelcomePanel from '../components/WelcomePanel';
 import { useIncidentMapData } from '../hooks/useIncidentMapData';
+
+const WELCOME_DISMISSED_KEY = 'streetproof:welcome-dismissed:v1';
 
 export default function Home() {
   const {
@@ -20,6 +23,24 @@ export default function Home() {
     stats,
   } = useIncidentMapData();
   const [panelOpen, setPanelOpen] = useState(false);
+  const [welcomeVisible, setWelcomeVisible] = useState(false);
+
+  useEffect(() => {
+    try {
+      setWelcomeVisible(localStorage.getItem(WELCOME_DISMISSED_KEY) !== '1');
+    } catch {
+      setWelcomeVisible(true);
+    }
+  }, []);
+
+  const dismissWelcome = () => {
+    setWelcomeVisible(false);
+    try {
+      localStorage.setItem(WELCOME_DISMISSED_KEY, '1');
+    } catch {
+      // Ignore storage failures; panel can still be dismissed for the session.
+    }
+  };
 
   return (
     <div className="relative h-full min-h-0 bg-brand-950">
@@ -57,24 +78,33 @@ export default function Home() {
             </button>
           </div>
           <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="rounded-lg bg-gray-900/70 px-2 py-2">
+            <div className="rounded-lg bg-gray-900/70 px-2 py-2" title="Distinct underlying infrastructure problems on the map">
               <div className="text-lg font-semibold text-white leading-none">{stats.total}</div>
-              <div className="text-[11px] text-gray-400 mt-1">Total</div>
+              <div className="text-[11px] text-gray-400 mt-1">Incidents</div>
             </div>
-            <div className="rounded-lg bg-red-500/10 px-2 py-2">
+            <div className="rounded-lg bg-red-500/10 px-2 py-2" title="Incidents currently marked open">
               <div className="text-lg font-semibold text-red-400 leading-none">{stats.open}</div>
               <div className="text-[11px] text-gray-400 mt-1">Open</div>
             </div>
-            <div className="rounded-lg bg-green-500/10 px-2 py-2">
+            <div className="rounded-lg bg-green-500/10 px-2 py-2" title="Incidents currently marked closed">
               <div className="text-lg font-semibold text-green-400 leading-none">{stats.closed}</div>
               <div className="text-[11px] text-gray-400 mt-1">Closed</div>
             </div>
           </div>
-          <div className="mt-2 text-[11px] text-gray-500 flex items-center justify-between">
-            <span>{stats.reports} reports across incidents</span>
+          <div className="mt-2 text-[11px] text-gray-500 flex items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-1 min-w-0">
+              <span className="truncate">{stats.reports} reports across {stats.total} incidents</span>
+              <span
+                className="text-gray-500 hover:text-gray-300 shrink-0"
+                title="Reports are individual citizen submissions. Incidents are distinct underlying problems that one or more reports may describe."
+                aria-label="Reports are individual citizen submissions. Incidents are distinct underlying problems."
+              >
+                <Info size={12} />
+              </span>
+            </span>
             <button
               onClick={() => setPanelOpen((v) => !v)}
-              className="inline-flex items-center gap-1 text-gray-300 hover:text-white"
+              className="inline-flex items-center gap-1 text-gray-300 hover:text-white shrink-0"
             >
               <Filter size={12} />
               Filters
@@ -83,12 +113,14 @@ export default function Home() {
         </div>
       </div>
 
+      {welcomeVisible && !panelOpen && <WelcomePanel onDismiss={dismissWelcome} />}
+
       {/* Floating filter/legend panel */}
       {panelOpen && (
-        <div className="absolute top-[152px] left-3 sm:left-4 z-20 w-[calc(100%-1.5rem)] sm:w-[340px] max-h-[calc(100%-170px)] overflow-auto">
+        <div className="absolute top-[168px] sm:top-[176px] left-3 sm:left-4 z-20 w-[calc(100%-1.5rem)] sm:w-[340px] max-h-[calc(100%-190px)] overflow-auto">
           <div className="bg-gray-950/90 border border-gray-800 rounded-xl backdrop-blur-md shadow-xl p-3 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-white">Map filters</span>
+              <span className="text-sm font-medium text-white">Map filters &amp; guide</span>
               <button onClick={() => setPanelOpen(false)} className="text-gray-400 hover:text-white" aria-label="Close filters">
                 <X size={16} />
               </button>
