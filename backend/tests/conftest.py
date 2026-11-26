@@ -173,7 +173,15 @@ def app(db_engine, mock_embedding_service, upload_dir):
     from app.config import settings as app_settings
     old_upload_dir = app_settings.upload_dir
     old_cors_origins = app_settings.cors_origins
+    old_storage_backend = app_settings.storage_backend
+    old_supabase_url = app_settings.supabase_url
+    old_supabase_service_role_key = app_settings.supabase_service_role_key
+    old_supabase_storage_bucket = app_settings.supabase_storage_bucket
     app_settings.upload_dir = str(upload_dir)
+    app_settings.storage_backend = "local"
+    app_settings.supabase_url = ""
+    app_settings.supabase_service_role_key = ""
+    app_settings.supabase_storage_bucket = "report-images"
     # Isolated test app keeps explicit local origins; production CORS validation
     # is covered by dedicated config tests.
     app_settings.cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -214,6 +222,10 @@ def app(db_engine, mock_embedding_service, upload_dir):
             p.stop()
         app_settings.upload_dir = old_upload_dir
         app_settings.cors_origins = old_cors_origins
+        app_settings.storage_backend = old_storage_backend
+        app_settings.supabase_url = old_supabase_url
+        app_settings.supabase_service_role_key = old_supabase_service_role_key
+        app_settings.supabase_storage_bucket = old_supabase_storage_bucket
 
 
 @pytest.fixture(scope="function")

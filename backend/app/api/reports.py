@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app.models import Incident, MatchingJob, MatchingJobStatusEnum, Report, StatusEnum
 from app.schemas import CategoryEnum, PaginatedResponse, ReportResponse
-from app.services.image_service import save_image
+from app.services.image_service import delete_image, save_image
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -21,7 +21,7 @@ async def create_report(
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
 ) -> Report:
-    relative_path, sha256_hash, phash_hex, phash_size = await save_image(image)
+    image_path, sha256_hash, phash_hex, phash_size = await save_image(image)
 
     try:
         incident = Incident(
@@ -40,7 +40,7 @@ async def create_report(
             category=category,
             latitude=latitude,
             longitude=longitude,
-            image_path=relative_path,
+            image_path=image_path,
             sha256_hash=sha256_hash,
             phash=phash_hex,
             phash_size=phash_size,
@@ -62,12 +62,9 @@ async def create_report(
         return report
     except Exception:
         db.rollback()
-        # Best-effort cleanup for saved file on DB failure.
+        # Best-effort cleanup for stored image on DB failure.
         try:
-            from pathlib import Path
-            from app.config import settings
-
-            Path(settings.upload_dir, Path(relative_path).name).unlink(missing_ok=True)
+            delete_image(image_path)
         except Exception:
             pass
         raise

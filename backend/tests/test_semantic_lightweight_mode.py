@@ -42,6 +42,10 @@ def lightweight_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
     monkeypatch.setenv("EMBEDDING_CACHE_DIR", str(tmp_path / "model_cache"))
     monkeypatch.setenv("SEMANTIC_MATCHING_ENABLED", "false")
+    monkeypatch.setenv("STORAGE_BACKEND", "supabase")
+    monkeypatch.setenv("SUPABASE_URL", "https://example-project.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role-test-key")
+    monkeypatch.setenv("SUPABASE_STORAGE_BUCKET", "report-images")
     return Settings()
 
 

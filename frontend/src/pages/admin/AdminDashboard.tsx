@@ -1,4 +1,4 @@
-import { AlertCircle, Calendar, CheckCircle2, Clock, FileText, GitMerge, Loader2, MapPin, XCircle } from 'lucide-react';
+import { AlertCircle, Calendar, CheckCircle2, Clock, FileText, GitMerge, ImageOff, Loader2, MapPin, XCircle } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AdminLayout from '../../components/admin/AdminLayout';
@@ -43,6 +43,26 @@ function StatCard({
       </div>
       <p className="mt-3 text-3xl font-semibold text-white">{value}</p>
     </div>
+  );
+}
+
+function RecentReportThumb({ imagePath }: { imagePath: string | null }) {
+  const [imgError, setImgError] = useState(false);
+  if (!imagePath || imgError) {
+    return (
+      <div className="w-10 h-10 rounded-md border border-gray-700 bg-gray-800 flex items-center justify-center text-gray-500" title="Image unavailable">
+        <ImageOff size={14} />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={imageUrl(imagePath)}
+      alt=""
+      className="w-10 h-10 rounded-md object-cover border border-gray-700 bg-gray-800"
+      onError={() => setImgError(true)}
+      loading="lazy"
+    />
   );
 }
 
@@ -142,15 +162,7 @@ export default function AdminDashboard() {
                   <tr key={r.id} className="border-t border-gray-800/80 align-top">
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
-                        {r.image_path ? (
-                          <img
-                            src={imageUrl(r.image_path)}
-                            alt=""
-                            className="w-10 h-10 rounded-md object-cover border border-gray-700 bg-gray-800"
-                          />
-                        ) : (
-                          <div className="w-10 h-10 rounded-md border border-gray-700 bg-gray-800" />
-                        )}
+                        <RecentReportThumb imagePath={r.image_path} />
                         <span className="text-gray-300 font-mono text-xs">{shortId(r.id)}</span>
                       </div>
                     </td>

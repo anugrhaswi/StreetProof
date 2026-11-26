@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, Calendar, MapPin, Trash2 } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Calendar, ImageOff, MapPin, Trash2 } from 'lucide-react';
 import AdminLayout from '../../components/admin/AdminLayout';
 import ConfirmDialog from '../../components/admin/ConfirmDialog';
 import { useAdminAuth } from '../../contexts/AdminAuthContext';
@@ -22,6 +22,9 @@ export default function AdminReportDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => { setImgError(false); }, [report?.image_path]);
 
   const load = useCallback(async () => {
     if (!reportId) return;
@@ -89,10 +92,18 @@ export default function AdminReportDetailPage() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-1">
-                {report.image_path ? (
-                  <img src={imageUrl(report.image_path)} alt="Report" className="w-full rounded-lg border border-gray-800 object-cover max-h-80 bg-gray-950" />
+                {report.image_path && !imgError ? (
+                  <img
+                    src={imageUrl(report.image_path)}
+                    alt="Report"
+                    className="w-full rounded-lg border border-gray-800 object-cover max-h-80 bg-gray-950"
+                    onError={() => setImgError(true)}
+                  />
                 ) : (
-                  <div className="w-full h-56 rounded-lg border border-gray-800 bg-gray-950 flex items-center justify-center text-gray-500 text-sm">No image</div>
+                  <div className="w-full h-56 rounded-lg border border-gray-800 bg-gray-950 flex flex-col items-center justify-center text-gray-500 text-sm gap-2">
+                    <ImageOff size={22} />
+                    <span>Image unavailable</span>
+                  </div>
                 )}
               </div>
               <div className="lg:col-span-2 space-y-4">

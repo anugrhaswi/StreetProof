@@ -393,7 +393,10 @@ export async function deleteAdminReport(reportId: string): Promise<AdminReportDe
 }
 
 export function imageUrl(imagePath: string): string {
-  // imagePath is stored as "uploads/<file>"; serve from /uploads/<file>
+  if (!imagePath) return '';
+  // Production/Supabase stores full public URL; keep absolute URLs unchanged.
+  if (/^https?:\/\//i.test(imagePath)) return imagePath;
+  // Legacy/local: "uploads/<file>" or bare filename served from backend /uploads.
   const clean = imagePath.replace(/^\/+/, '');
   if (clean.startsWith('uploads/')) {
     return `${API_BASE_URL}/${clean}`;

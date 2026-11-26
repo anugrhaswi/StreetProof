@@ -15,6 +15,10 @@ def _prod_settings(**overrides):
         admin_username="prod-admin",
         admin_password="very-strong-prod-password",
         cors_origins=["https://streetproof.vercel.app"],
+        storage_backend="supabase",
+        supabase_url="https://example-project.supabase.co",
+        supabase_service_role_key="service-role-test-key",
+        supabase_storage_bucket="report-images",
     )
     base.update(overrides)
     return Settings(**base)

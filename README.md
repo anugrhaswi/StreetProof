@@ -75,7 +75,7 @@ Civic issue reports are often duplicated, noisy, and difficult to triage. Multip
 | Area | Status | Notes |
 |---|---:|---|
 | Production deployment | Partially implemented | App can be configured for deployment, but Render/Vercel deployment was not executed/verified in this CLI session. |
-| Image persistence in production | Partially implemented | Images are stored on local filesystem (`UPLOAD_DIR`); Render local disk is ephemeral. No Supabase Storage/S3 integration. |
+| Image persistence in production | Implemented in code (Supabase Storage) | `STORAGE_BACKEND=supabase` stores public Supabase Storage URLs in `Report.image_path`; local filesystem remains default for dev. Bucket existence/public-read config must be verified manually before deployment. |
 | Background matching worker deployment model | Partially implemented | Worker runs inside FastAPI lifespan. Suitable for single always-on instance; not a separate scalable worker process. |
 | Cross-origin admin cookie auth | Partially implemented | Default cookie policy is `SameSite=Lax`, `Secure` in production. Cross-site Vercel frontend -> Render API would require deliberate `SameSite=None; Secure` and strict CORS review. |
 | Rate limiting | Partially implemented | Admin login rate limiter is in-memory per process; not shared across multiple instances. |
@@ -84,7 +84,7 @@ Civic issue reports are often duplicated, noisy, and difficult to triage. Multip
 
 ### Not Implemented / Explicitly Not Claimed
 
-- Supabase Storage image uploads.
+- Automatic verification that the Supabase bucket exists and is publicly readable (code does not create/modify bucket settings).
 - Automatic merge enabled by default (`AUTO_MERGE_ENABLED` defaults to `false`).
 - Fully production-ready deployment.
 - Dedicated queue/worker infrastructure (Redis/Celery/etc.).
@@ -98,7 +98,7 @@ flowchart LR
     A[Admin Browser] -->|Admin UI + cookies/CSRF| FE
     FE -->|REST /api/*| API[FastAPI Backend]
     API --> DB[(SQLite dev / PostgreSQL Supabase)]
-    API --> FS[Local Uploads Directory]
+    API --> IMG[Image Storage\nLocal uploads or Supabase Storage]
     API --> MW[Matching Worker\nFastAPI lifespan background task]
     MW --> EMB[EmbeddingService\nSentenceTransformer]
     MW --> MF[Image Fingerprints\nSHA-256 + pHash]
@@ -113,7 +113,7 @@ flowchart LR
 - **Frontend:** React SPA with public routes and protected admin routes.
 - **Backend API:** FastAPI app with routers for health, reports, incidents, matching, admin auth, admin dashboard/reports/incidents/matches/merges.
 - **Database:** SQLAlchemy ORM models; SQLite for local dev, PostgreSQL/Supabase supported through normalized `DATABASE_URL`.
-- **File storage:** Local upload directory served at `/uploads`.
+- **File storage:** Storage abstraction. Local dev default writes to `UPLOAD_DIR` and serves `/uploads`; production can use Supabase Storage public object URLs. `Report.image_path` stores either legacy `uploads/<file>` or a full public `http(s)` URL.
 - **AI/matching:** In-process embedding service + DB-backed matching worker. Full semantic mode is optional; lightweight mode preserves non-semantic matching signals.
 
 ## Tech Stack
@@ -290,7 +290,11 @@ Use `.env.example` as the source template. Do not commit real secrets.
 | `DATABASE_POOL_TIMEOUT_SECONDS` | No | `30` | PostgreSQL pool timeout. |
 | `DATABASE_POOL_RECYCLE_SECONDS` | No | `1800` | PostgreSQL pool recycle. |
 | `DATABASE_POOL_PRE_PING` | No | `true` | PostgreSQL connection health check. |
-| `UPLOAD_DIR` | No | `./uploads` | Local image storage path. |
+| `UPLOAD_DIR` | No | `./uploads` | Local image storage path (used in local backend and legacy local reads). |
+| `STORAGE_BACKEND` | No | `local` | `local` or `supabase`. Use `supabase` in production; local filesystem is default for dev/test. |
+| `SUPABASE_URL` | Required when `STORAGE_BACKEND=supabase` | empty | Supabase project URL, e.g. `https://<project-ref>.supabase.co`. Backend only. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Required when `STORAGE_BACKEND=supabase` | empty | Supabase service-role key for Storage REST API. **Backend only; never expose to frontend/Vercel `VITE_*`.** |
+| `SUPABASE_STORAGE_BUCKET` | No | `report-images` | Public Supabase Storage bucket for report images. |
 | `SEMANTIC_MATCHING_ENABLED` | No | unset | `true` enables full semantic model; `false` forces lightweight matching; unset defaults to enabled in dev/test and disabled in production. |
 | `EMBEDDING_MODEL_NAME` | No | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model (semantic mode). |
 | `EMBEDDING_MODEL_REVISION` | No | `c9745ed1d9f207416be6d2e6f8de32d1f16199bf` | Pinned model revision. |
@@ -517,7 +521,7 @@ Deployment is **partially implemented / prepared**, not fully production-verifie
 
 **Important deployment caveats:**
 
-- **Local uploads are ephemeral on Render disk.** `image_service.py` stores files under `UPLOAD_DIR`; without persistent object storage, uploaded images can be lost on redeploy/restart.
+- **Configure persistent images for Render.** Set `STORAGE_BACKEND=supabase` with backend-only Supabase Storage credentials and a public `report-images` bucket. Local `UPLOAD_DIR` storage is ephemeral on Render and should be dev-only.
 - **Matching worker is embedded in FastAPI lifespan.** Run one always-on instance unless/until worker is extracted.
 - **In-memory login rate limiter** is not shared across instances.
 - **Model cache/download** may affect cold start in semantic mode; configure persistent cache/storage as needed. For Render Free, keep `SEMANTIC_MATCHING_ENABLED=false` and use lightweight `requirements.txt`.
@@ -583,14 +587,14 @@ Admin routes require authenticated admin session; state-changing routes also req
 - **CORS:** explicit allowlist; no wildcard with credentials.
 - **Admin auth:** signed HttpOnly session cookie + JS-readable CSRF cookie + double-submit CSRF validation.
 - **Rate limiting:** in-memory admin login rate limiter (per process).
-- **Uploads:** image type/size/content validation; local filesystem storage; served from `/uploads`.
+- **Uploads:** image type/size/content validation; SHA-256/pHash fingerprinting preserved; local filesystem storage in dev or Supabase Storage public URLs in production; legacy `/uploads/...` paths still supported.
 - **Evidence preservation:** original reports/images are not deleted by merge; merge creates immutable event/audit records.
 - **Conservative merging:** uncertain matches remain reviewable; merge/reversal paths check conflicts.
 - **No destructive DB operations** are part of normal app flow; migrations should be reviewed before production use.
 
 ## Known Limitations
 
-- Render local filesystem uploads are ephemeral; persistent object storage is not implemented.
+- Supabase Storage requires manual bucket verification/public-read policy check before deployment; code does not create or alter bucket configuration.
 - Matching worker is embedded in the API process and not horizontally scalable as-is.
 - Admin login rate limiting is in-memory and not shared across instances.
 - `SameSite=Lax` cookie default may not work for cross-site admin deployments without deliberate auth/CORS changes.
@@ -601,7 +605,7 @@ Admin routes require authenticated admin session; state-changing routes also req
 
 ## Future Improvements
 
-- Move uploads to persistent object storage (Supabase Storage/S3-compatible) with signed/public URL strategy.
+- Verify Supabase Storage bucket/public policy and add signed URL/private bucket option if needed.
 - Extract matching worker into a separate process/queue with shared state.
 - Add Redis/shared rate limiting and session/security hardening for multi-instance deployments.
 - Add end-to-end browser tests (Playwright/Cypress) and deployment smoke checks.
@@ -614,7 +618,7 @@ Admin routes require authenticated admin session; state-changing routes also req
 - **24-hour constraint:** The project prioritizes a working, demonstrable MVP over exhaustive production hardening.
 - **What was prioritized:** report submission, evidence storage, async matching, admin review/merge controls, map visualization, and basic deployment/config readiness.
 - **What was intentionally constrained:** no chart/analytics bloat, no fake integrations, no destructive schema shortcuts, no claim of full production readiness.
-- **Pragmatic decisions:** SQLite for local speed, local uploads for simple demo flow, embedded worker for simple operation, and conservative merge behavior to avoid bad automatic merges.
+- **Pragmatic decisions:** SQLite for local speed, storage abstraction with local-dev default and Supabase Storage for production persistence, embedded worker for simple operation, and conservative merge behavior to avoid bad automatic merges.
 
 ## AI-Assisted Development / Skills Used
 

@@ -1,13 +1,11 @@
 import logging
 import math
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.auth.dependencies import get_current_admin, require_csrf
-from app.config import settings
 from app.database import get_db
 from app.models import (
     ActorTypeEnum,
@@ -28,31 +26,20 @@ from app.schemas import (
     MatchSuggestionResponse,
     PaginatedResponse,
 )
+from app.services.image_service import delete_image
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/reports", tags=["admin-reports"])
 
 
-def _safe_delete_image(relative_path: str | None) -> bool:
-    if not relative_path:
+def _safe_delete_image(image_path: str | None) -> bool:
+    if not image_path:
         return False
     try:
-        upload_dir = Path(settings.upload_dir).resolve()
-        filename = Path(relative_path).name
-        if not filename:
-            return False
-        target = (upload_dir / filename).resolve()
-        if not target.is_relative_to(upload_dir):
-            logger.warning("Blocked image deletion outside upload dir: %s", relative_path)
-            return False
-        if not target.exists():
-            logger.warning("Image file missing during delete: %s", target)
-            return False
-        target.unlink()
-        return True
+        return delete_image(image_path)
     except Exception:
-        logger.warning("Failed to delete image file: %s", relative_path, exc_info=True)
+        logger.warning("Failed to delete image from storage", exc_info=True)
         return False
 
 

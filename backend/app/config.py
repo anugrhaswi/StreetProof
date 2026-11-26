@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     database_pool_recycle_seconds: int = 1800
     database_pool_pre_ping: bool = True
     upload_dir: str = "./uploads"
+    storage_backend: Literal["local", "supabase"] = "local"
+    supabase_url: str = ""
+    supabase_service_role_key: str = ""
+    supabase_storage_bucket: str = "report-images"
 
     # Phase 3: semantic matching / embeddings
     semantic_matching_enabled: bool | None = None
@@ -124,6 +128,27 @@ class Settings(BaseSettings):
                 return True
             if raw in {"0", "false", "no", "off"}:
                 return False
+        return value
+
+    @field_validator("storage_backend", mode="before")
+    @classmethod
+    def _normalize_storage_backend(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
+    @field_validator("supabase_url", mode="before")
+    @classmethod
+    def _normalize_supabase_url(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().rstrip("/")
+        return value
+
+    @field_validator("supabase_storage_bucket", mode="before")
+    @classmethod
+    def _normalize_supabase_storage_bucket(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
         return value
 
     @field_validator("cors_origins", mode="before")
@@ -205,9 +230,32 @@ class Settings(BaseSettings):
         errors: list[str] = []
         origins = self._validate_cors_settings(errors)
         self._validate_database_settings(errors)
+        self._validate_storage_settings(errors)
         self._validate_production_settings(errors, origins)
         if errors:
             raise RuntimeError("Invalid application configuration:\n- " + "\n- ".join(errors))
+
+    def _validate_storage_settings(self, errors: list[str]) -> None:
+        backend = (self.storage_backend or "").strip().lower()
+        if backend not in {"local", "supabase"}:
+            errors.append("STORAGE_BACKEND must be 'local' or 'supabase'.")
+            return
+
+        if backend == "supabase":
+            url = (self.supabase_url or "").strip()
+            key = (self.supabase_service_role_key or "").strip()
+            bucket = (self.supabase_storage_bucket or "").strip()
+            if not url:
+                errors.append("SUPABASE_URL must be set when STORAGE_BACKEND=supabase.")
+            elif not (url.startswith("https://") or url.startswith("http://")):
+                errors.append("SUPABASE_URL must start with http:// or https://.")
+            if not key:
+                errors.append("SUPABASE_SERVICE_ROLE_KEY must be set when STORAGE_BACKEND=supabase.")
+            if not bucket:
+                errors.append("SUPABASE_STORAGE_BUCKET must be set when STORAGE_BACKEND=supabase.")
+
+        if self.is_production and backend != "supabase":
+            errors.append("STORAGE_BACKEND must be 'supabase' in production for persistent image storage.")
 
     def _validate_database_settings(self, errors: list[str]) -> None:
         url = (self.database_url or "").strip()

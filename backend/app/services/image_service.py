@@ -1,4 +1,5 @@
 import uuid
+from io import BytesIO
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile, status
@@ -6,6 +7,7 @@ from PIL import Image, UnidentifiedImageError
 
 from app.config import settings
 from app.services.image_fingerprint import compute_phash, compute_sha256
+from app.services.storage import StorageUploadResult, get_storage_service
 
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png"}
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
@@ -13,6 +15,7 @@ MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
 
 
 def ensure_upload_dir() -> Path:
+    """Ensure local upload dir exists (used by local storage and legacy static mount)."""
     upload_dir = Path(settings.upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
     return upload_dir
@@ -33,7 +36,9 @@ def _validate_extension(filename: str | None) -> str:
 async def save_image(file: UploadFile) -> tuple[str, str, str, int]:
     """Validate, persist, and fingerprint an uploaded image.
 
-    Returns (relative_path, sha256_hash, phash_hex, phash_size).
+    Returns (image_path, sha256_hash, phash_hex, phash_size).
+    image_path is a stable storage reference: legacy/local "uploads/<file>" or
+    a full public Supabase Storage URL in production.
     """
     if file.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(
@@ -53,8 +58,6 @@ async def save_image(file: UploadFile) -> tuple[str, str, str, int]:
 
     # Verify it's a real image before persisting.
     try:
-        from io import BytesIO
-
         with Image.open(BytesIO(content)) as img:
             img.verify()
     except (UnidentifiedImageError, OSError):
@@ -66,11 +69,25 @@ async def save_image(file: UploadFile) -> tuple[str, str, str, int]:
     if not phash_hex:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to compute image fingerprint.")
 
-    upload_dir = ensure_upload_dir()
     unique_name = f"{uuid.uuid4().hex}{ext}"
-    destination = upload_dir / unique_name
-    with destination.open("wb") as out_file:
-        out_file.write(content)
+    storage = get_storage_service(settings)
+    result: StorageUploadResult = storage.upload_bytes(
+        content=content,
+        filename=unique_name,
+        content_type=file.content_type or "application/octet-stream",
+    )
+    return result.image_path, sha256_hash, phash_hex, phash_size
 
-    relative_path = f"uploads/{unique_name}"
-    return relative_path, sha256_hash, phash_hex, phash_size
+
+def delete_image(image_path: str | None) -> bool:
+    """Delete an image from the configured storage backend. Returns True when deleted."""
+    storage = get_storage_service(settings)
+    return storage.delete(image_path)
+
+
+def read_image_bytes(image_path: str | None) -> bytes | None:
+    """Read image bytes from the configured storage backend/local legacy path."""
+    if not image_path:
+        return None
+    storage = get_storage_service(settings)
+    return storage.read_bytes(image_path)

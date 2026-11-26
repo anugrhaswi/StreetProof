@@ -147,14 +147,15 @@ class MatchingWorker:
         """Compute missing SHA-256/pHash from stored image. Returns True if fingerprints changed."""
         if report.sha256_hash and report.phash:
             return False
-        image_path = Path(settings.upload_dir) / Path(report.image_path).name
-        if not image_path.exists():
-            logger.warning("Image missing for report %s at %s; fingerprinting skipped", report.id, image_path)
-            return False
         try:
-            content = image_path.read_bytes()
+            from app.services.image_service import read_image_bytes
+
+            content = read_image_bytes(report.image_path)
         except Exception:
             logger.exception("Failed to read image for report %s", report.id)
+            return False
+        if not content:
+            logger.warning("Image unavailable for report %s; fingerprinting skipped", report.id)
             return False
         changed = False
         if not report.sha256_hash:

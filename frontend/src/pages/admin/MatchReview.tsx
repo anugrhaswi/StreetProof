@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, Check, ChevronLeft, ChevronRight, Eye, Search, X } from 'lucide-react';
+import { AlertCircle, Check, ChevronLeft, ChevronRight, Eye, ImageOff, Search, X } from 'lucide-react';
 import AdminLayout from '../../components/admin/AdminLayout';
 import ConfirmDialog from '../../components/admin/ConfirmDialog';
 import { useToast } from '../../components/Toast';
@@ -57,6 +57,31 @@ function Signal({ label, value, ok }: { label: string; value: string; ok?: boole
       <p className="text-sm font-medium">{value}</p>
     </div>
   );
+}
+
+function MatchThumb({ path, sizeClass }: { path: string | null | undefined; sizeClass: string }) {
+  const [err, setErr] = useState(false);
+  if (!path || err) {
+    return (
+      <div className={`${sizeClass} rounded border border-gray-700 bg-gray-800 flex items-center justify-center text-gray-500`}>
+        <ImageOff size={16} />
+      </div>
+    );
+  }
+  return <img src={imageUrl(path)} alt="" className={`${sizeClass} rounded object-cover border border-gray-700 bg-gray-800`} onError={() => setErr(true)} loading="lazy" />;
+}
+
+function ModalReportImage({ path }: { path: string | null | undefined }) {
+  const [err, setErr] = useState(false);
+  if (!path || err) {
+    return (
+      <div className="w-full h-64 bg-gray-800 flex flex-col items-center justify-center text-gray-500 gap-2">
+        <ImageOff size={24} />
+        <span className="text-sm">Image unavailable</span>
+      </div>
+    );
+  }
+  return <img src={imageUrl(path)} alt="" className="w-full h-64 object-cover bg-gray-800" onError={() => setErr(true)} />;
 }
 
 export default function MatchReview() {
@@ -224,11 +249,11 @@ export default function MatchReview() {
                     <tr key={s.id} className="border-t border-gray-800/80 align-top">
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
-                          <img src={imageUrl(s.report.image_path)} alt="" className="w-12 h-12 rounded object-cover border border-gray-700 bg-gray-800" />
+                          <MatchThumb path={s.report.image_path} sizeClass="w-12 h-12" />
                           <div className="text-xs text-gray-500">vs</div>
-                          <img src={imageUrl(s.matched_report.image_path)} alt="" className="w-12 h-12 rounded object-cover border border-gray-700 bg-gray-800" />
+                          <MatchThumb path={s.matched_report.image_path} sizeClass="w-12 h-12" />
                           <div className="min-w-0">
-                            <p className="text-gray-300 font-mono text-xs">{shortId(s.report_id)} → {shortId(s.matched_report_id)}</p>
+                            <p className="text-gray-300 font-mono text-xs">{shortId(s.report_id)}  {shortId(s.matched_report_id)}</p>
                             <p className="text-gray-500 text-xs capitalize">{s.report.category}</p>
                           </div>
                         </div>
@@ -309,7 +334,7 @@ export default function MatchReview() {
                     <div><p className="text-sm font-medium text-white">{label}</p><p className="text-xs text-gray-500 font-mono">{r.id}</p></div>
                     <Link to={`/admin/reports/${r.id}`} className="text-xs text-brand-300 hover:text-brand-200 underline">Open report</Link>
                   </div>
-                  <img src={imageUrl(r.image_path)} alt="" className="w-full h-64 object-cover bg-gray-800" />
+                  <ModalReportImage path={r.image_path} />
                   <div className="p-4 space-y-2 text-sm">
                     <p className="text-gray-300">{r.description}</p>
                     <p className="text-gray-500 text-xs">Category: <span className="capitalize text-gray-300">{r.category}</span></p>
