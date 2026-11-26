@@ -77,7 +77,7 @@ Civic issue reports are often duplicated, noisy, and difficult to triage. Multip
 | Production deployment | Partially implemented | App can be configured for deployment, but Render/Vercel deployment was not executed/verified in this CLI session. |
 | Image persistence in production | Implemented in code (Supabase Storage) | `STORAGE_BACKEND=supabase` stores public Supabase Storage URLs in `Report.image_path`; local filesystem remains default for dev. Bucket existence/public-read config must be verified manually before deployment. |
 | Background matching worker deployment model | Partially implemented | Worker runs inside FastAPI lifespan. Suitable for single always-on instance; not a separate scalable worker process. |
-| Cross-origin admin cookie auth | Partially implemented | Default cookie policy is `SameSite=Lax`, `Secure` in production. Cross-site Vercel frontend -> Render API would require deliberate `SameSite=None; Secure` and strict CORS review. |
+| Cross-origin admin cookie auth | Implemented (configurable) | Production defaults to `SameSite=None; Secure; HttpOnly` for session cookie and `SameSite=None; Secure` for CSRF cookie, with strict CORS allowlist and credentialed requests. Development defaults to `SameSite=Lax` for local HTTP. |
 | Rate limiting | Partially implemented | Admin login rate limiter is in-memory per process; not shared across multiple instances. |
 | AI model runtime | Partially implemented | Semantic mode loads SentenceTransformer in background and uses local cache dir; first run may download model unless cached. Lightweight mode disables model load/import. |
 | Browser/manual E2E QA | Not verified in this CLI | UI flows, mobile behavior, and live browser console checks were not run here. |
@@ -535,7 +535,7 @@ Deployment is **partially implemented / prepared**, not fully production-verifie
 
 ### Cross-origin admin auth note
 
-The current auth cookie strategy uses `SameSite=Lax` and `Secure` in production. A cross-site frontend (Vercel) to backend (Render) admin cookie flow requires deliberate `SameSite=None; Secure` configuration and strict CORS review. This is not enabled by default.
+Production admin cookie auth defaults to `SameSite=None; Secure` (with strict explicit CORS allowlist and `allow_credentials=true`) for cross-site Vercel -> Render deployments. Development/test default to `SameSite=Lax` for local HTTP workflows. `ADMIN_COOKIE_SAMESITE` can override when needed.
 
 ## API Overview
 
@@ -597,7 +597,7 @@ Admin routes require authenticated admin session; state-changing routes also req
 - Supabase Storage requires manual bucket verification/public-read policy check before deployment; code does not create or alter bucket configuration.
 - Matching worker is embedded in the API process and not horizontally scalable as-is.
 - Admin login rate limiting is in-memory and not shared across instances.
-- `SameSite=Lax` cookie default may not work for cross-site admin deployments without deliberate auth/CORS changes.
+- Cross-site admin auth requires HTTPS, `SameSite=None; Secure` cookies, strict CORS allowlist, and frontend `credentials: "include"`.
 - Semantic AI model loading can be heavy on first run/cold start depending on cache availability; lightweight mode avoids this but has no text-semantic signal.
 - No automated browser E2E suite in this CLI verification; manual UI QA is still needed.
 - Vercel/Render deployment configuration and live production smoke tests were not executed in this CLI session.

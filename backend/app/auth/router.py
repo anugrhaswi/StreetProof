@@ -47,24 +47,28 @@ def _cookie_secure() -> bool:
 
 
 def _cookie_samesite() -> str:
-    # Lax supports same-site admin flows and local dev. Cross-origin cookie auth
-    # (e.g. Vercel frontend -> Render API on different site) requires SameSite=None
-    # and Secure=true, which is intentionally not enabled by default here.
-    return "lax"
+    # Production defaults to SameSite=None for cross-site Vercel->Render admin auth.
+    # Development/test default to Lax for local HTTP workflows.
+    return settings.cookie_samesite()
+
+
+def _cookie_params() -> dict[str, object]:
+    return {
+        "secure": _cookie_secure(),
+        "samesite": _cookie_samesite(),
+        "path": "/",
+    }
 
 
 def _set_auth_cookies(response: Response, username: str) -> None:
     max_age = settings.admin_session_expire_minutes * 60
-    cookie_secure = _cookie_secure()
-    cookie_samesite = _cookie_samesite()
+    cookie_params = _cookie_params()
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=create_session_token(username),
         max_age=max_age,
         httponly=True,
-        secure=cookie_secure,
-        samesite=cookie_samesite,
-        path="/",
+        **cookie_params,
     )
     # Double-submit CSRF cookie is JS-readable; header must match on state-changing requests.
     response.set_cookie(
@@ -72,15 +76,14 @@ def _set_auth_cookies(response: Response, username: str) -> None:
         value=create_csrf_token(),
         max_age=max_age,
         httponly=False,
-        secure=cookie_secure,
-        samesite=cookie_samesite,
-        path="/",
+        **cookie_params,
     )
 
 
 def _clear_auth_cookies(response: Response) -> None:
-    response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
-    response.delete_cookie(key=CSRF_COOKIE_NAME, path="/")
+    cookie_params = _cookie_params()
+    response.delete_cookie(key=SESSION_COOKIE_NAME, **cookie_params)
+    response.delete_cookie(key=CSRF_COOKIE_NAME, **cookie_params)
 
 
 @router.post("/login", response_model=LoginResponse)

@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     admin_session_expire_minutes: int = 60
     admin_login_rate_limit: int = 5  # attempts per window
     admin_login_rate_window_seconds: int = 60
+    admin_cookie_samesite: Literal["lax", "strict", "none"] | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -135,6 +136,18 @@ class Settings(BaseSettings):
     def _normalize_storage_backend(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip().lower()
+        return value
+
+    @field_validator("admin_cookie_samesite", mode="before")
+    @classmethod
+    def _normalize_admin_cookie_samesite(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            raw = value.strip().lower()
+            if raw == "":
+                return None
+            return raw
         return value
 
     @field_validator("supabase_url", mode="before")
@@ -224,16 +237,39 @@ class Settings(BaseSettings):
 
     def cookie_secure(self) -> bool:
         # Production cookies must be Secure. Development/test keep HTTP local workflows working.
-        return self.is_production
+        # SameSite=None requires Secure=true by browser policy.
+        return self.is_production or self.cookie_samesite() == "none"
+
+    def cookie_samesite(self) -> str:
+        """Resolve admin session cookie SameSite.
+
+        Production defaults to SameSite=None for Vercel frontend -> Render API cross-site cookie auth.
+        Development/test default to Lax for local HTTP workflows. Explicit env override is supported.
+        """
+        if self.admin_cookie_samesite is not None:
+            value = str(self.admin_cookie_samesite).strip().lower()
+            if value in {"lax", "strict", "none"}:
+                return value
+        return "none" if self.is_production else "lax"
 
     def validate_runtime_settings(self) -> None:
         errors: list[str] = []
         origins = self._validate_cors_settings(errors)
         self._validate_database_settings(errors)
         self._validate_storage_settings(errors)
+        self._validate_auth_settings(errors)
         self._validate_production_settings(errors, origins)
         if errors:
             raise RuntimeError("Invalid application configuration:\n- " + "\n- ".join(errors))
+
+    def _validate_auth_settings(self, errors: list[str]) -> None:
+        same_site = str(self.admin_cookie_samesite or "").strip().lower() if self.admin_cookie_samesite is not None else None
+        if same_site is not None and same_site not in {"lax", "strict", "none"}:
+            errors.append("ADMIN_COOKIE_SAMESITE must be one of: lax, strict, none.")
+            return
+        resolved_same_site = self.cookie_samesite()
+        if resolved_same_site == "none" and not self.cookie_secure():
+            errors.append("ADMIN_COOKIE_SAMESITE=none requires Secure cookies.")
 
     def _validate_storage_settings(self, errors: list[str]) -> None:
         backend = (self.storage_backend or "").strip().lower()

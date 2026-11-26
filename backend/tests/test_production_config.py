@@ -70,6 +70,7 @@ def test_development_configuration_still_works():
     assert settings.normalized_cors_origins() == ["http://localhost:5173", "http://127.0.0.1:5173"]
     assert settings.cors_origin_regex() is not None
     assert settings.cookie_secure() is False
+    assert settings.cookie_samesite() == "lax"
 
 
 def test_production_cookies_configured_securely(monkeypatch):
@@ -90,7 +91,8 @@ def test_production_cookies_configured_securely(monkeypatch):
     monkeypatch.setattr(app_settings, "secret_key", "prod-secret-key-with-at-least-32-characters")
     monkeypatch.setattr(app_settings, "admin_username", "prod-admin")
     monkeypatch.setattr(app_settings, "admin_password", "very-strong-prod-password")
-    monkeypatch.setattr(app_settings, "cors_origins", ["https://streetproof.vercel.app"])
+    monkeypatch.setattr(app_settings, "cors_origins", ["https://street-proof.vercel.app"])
+    monkeypatch.setattr(app_settings, "admin_cookie_samesite", None)
     auth_router._CONFIGURED_PASSWORD_HASH = None
 
     app = FastAPI()
@@ -114,7 +116,7 @@ def test_production_cookies_configured_securely(monkeypatch):
             for header in set_cookie_headers:
                 lower = header.lower()
                 assert "secure" in lower
-                assert "samesite=lax" in lower
+                assert "samesite=none" in lower
                 assert "path=/" in lower
             session_header = next(h for h in set_cookie_headers if "streetproof_admin_session=" in h.lower())
             csrf_header = next(h for h in set_cookie_headers if "streetproof_csrf_token=" in h.lower())
@@ -126,3 +128,37 @@ def test_production_cookies_configured_securely(monkeypatch):
         auth_router._CONFIGURED_PASSWORD_HASH = None
         # ensure security serializer uses restored key for subsequent tests
         assert auth_security.settings is app_settings
+
+
+def test_production_credentialed_cors_allows_configured_origin_only():
+    from app.main import create_app
+    settings = _prod_settings(cors_origins=["https://street-proof.vercel.app"])
+    app = create_app(settings)
+    with TestClient(app) as client:
+        allowed = client.options(
+            "/api/admin/session",
+            headers={
+                "Origin": "https://street-proof.vercel.app",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        assert allowed.status_code == 200
+        assert allowed.headers.get("access-control-allow-origin") == "https://street-proof.vercel.app"
+        assert allowed.headers.get("access-control-allow-credentials") == "true"
+
+        denied = client.options(
+            "/api/admin/session",
+            headers={
+                "Origin": "https://evil.example",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        assert denied.headers.get("access-control-allow-origin") != "https://evil.example"
+
+
+def test_production_explicit_lax_override_still_supported(monkeypatch):
+    settings = _prod_settings(admin_cookie_samesite="lax")
+    validate_runtime_settings(settings)
+    assert settings.cookie_samesite() == "lax"
+    # Secure is still required in production
+    assert settings.cookie_secure() is True
