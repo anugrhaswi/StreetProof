@@ -8,7 +8,7 @@ interface WelcomePanelProps {
 export default function WelcomePanel({ onDismiss }: WelcomePanelProps) {
   return (
     <div className="absolute top-[168px] sm:top-[176px] left-3 sm:left-4 z-20 w-[calc(100%-1.5rem)] max-w-[360px]">
-      <div className="bg-gray-950/88 border border-gray-800 rounded-xl backdrop-blur-md shadow-xl p-4 sm:p-5">
+      <div className="bg-gray-950 border border-gray-600/70 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.55)] ring-1 ring-white/10 p-4 sm:p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 text-brand-400">
             <Info size={16} />
