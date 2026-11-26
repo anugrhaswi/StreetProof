@@ -114,11 +114,13 @@ export interface AIHealthResponse {
 export interface AdminSession {
   authenticated: boolean;
   username: string | null;
+  csrf_token?: string | null;
 }
 
 export interface AdminLoginResponse {
   authenticated: boolean;
   username: string;
+  csrf_token: string;
 }
 
 export interface DashboardStats {
@@ -190,9 +192,39 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function getCsrfToken(): string | null {
-  const match = document.cookie.match(/(?:^|;\s*)streetproof_csrf_token=([^;]+)/);
+const CSRF_COOKIE_NAME = 'streetproof_csrf_token';
+const CSRF_HEADER_NAME = 'X-CSRF-Token';
+let csrfTokenCache: string | null = null;
+
+function readCookie(name: string): string | null {
+  const match = document.cookie.match(new RegExp(`(?:^|;\s*)${name}=([^;]+)`));
   return match ? decodeURIComponent(match[1]) : null;
+}
+
+export function setCsrfToken(token: string | null | undefined): void {
+  csrfTokenCache = token?.trim() ? token.trim() : null;
+}
+
+export function getCsrfToken(): string | null {
+  const cookieToken = readCookie(CSRF_COOKIE_NAME);
+  if (cookieToken) {
+    csrfTokenCache = cookieToken;
+    return cookieToken;
+  }
+  return csrfTokenCache;
+}
+
+function csrfHeaders(): Record<string, string> {
+  const token = getCsrfToken();
+  return token ? { [CSRF_HEADER_NAME]: token } : {};
+}
+
+async function handleAdminAuthResponse<T extends { csrf_token?: string | null }>(response: Response): Promise<T> {
+  const data = await handleResponse<T>(response);
+  if (data && typeof data === 'object' && 'csrf_token' in data) {
+    setCsrfToken(data.csrf_token);
+  }
+  return data;
 }
 
 export async function checkHealth(): Promise<HealthResponse> {
@@ -269,20 +301,23 @@ export async function adminLogin(username: string, password: string): Promise<Ad
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ username, password }),
   });
-  return handleResponse<AdminLoginResponse>(response);
+  return handleAdminAuthResponse<AdminLoginResponse>(response);
 }
 
 export async function adminLogout(): Promise<void> {
-  const csrf = getCsrfToken();
-  const response = await fetch(`${API_BASE_URL}/api/admin/logout`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      Accept: 'application/json',
-      ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
-    },
-  });
-  return handleResponse<void>(response);
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/admin/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+        ...csrfHeaders(),
+      },
+    });
+    return await handleResponse<void>(response);
+  } finally {
+    setCsrfToken(null);
+  }
 }
 
 export async function getAdminSession(): Promise<AdminSession> {
@@ -291,7 +326,7 @@ export async function getAdminSession(): Promise<AdminSession> {
     credentials: 'include',
     headers: { Accept: 'application/json' },
   });
-  return handleResponse<AdminSession>(response);
+  return handleAdminAuthResponse<AdminSession>(response);
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
@@ -365,14 +400,13 @@ export async function getAdminIncident(incidentId: string): Promise<Incident> {
 }
 
 export async function updateAdminIncidentStatus(incidentId: string, status: 'open' | 'closed'): Promise<Incident> {
-  const csrf = getCsrfToken();
   const response = await fetch(`${API_BASE_URL}/api/admin/incidents/${incidentId}/status`, {
     method: 'PATCH',
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
+      ...csrfHeaders(),
     },
     body: JSON.stringify({ status }),
   });
@@ -380,13 +414,12 @@ export async function updateAdminIncidentStatus(incidentId: string, status: 'ope
 }
 
 export async function deleteAdminReport(reportId: string): Promise<AdminReportDeleteResponse> {
-  const csrf = getCsrfToken();
   const response = await fetch(`${API_BASE_URL}/api/admin/reports/${reportId}`, {
     method: 'DELETE',
     credentials: 'include',
     headers: {
       Accept: 'application/json',
-      ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
+      ...csrfHeaders(),
     },
   });
   return handleResponse<AdminReportDeleteResponse>(response);
@@ -493,21 +526,19 @@ export async function getAdminMatch(suggestionId: string): Promise<AdminMatchSug
 }
 
 export async function acceptAdminMatch(suggestionId: string): Promise<{ suggestion_id: string; status: SuggestionStatus; merge_event_id: string }> {
-  const csrf = getCsrfToken();
   const response = await fetch(`${API_BASE_URL}/api/admin/matches/${suggestionId}/accept`, {
     method: 'POST',
     credentials: 'include',
-    headers: { Accept: 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+    headers: { Accept: 'application/json', ...csrfHeaders() },
   });
   return handleResponse(response);
 }
 
 export async function rejectAdminMatch(suggestionId: string, reason?: string): Promise<{ suggestion_id: string; status: SuggestionStatus }> {
-  const csrf = getCsrfToken();
   const response = await fetch(`${API_BASE_URL}/api/admin/matches/${suggestionId}/reject`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ reason: reason ?? null }),
   });
   return handleResponse(response);
@@ -524,11 +555,10 @@ export async function getAdminMergeEvents(page = 1, pageSize = 20): Promise<Pagi
 }
 
 export async function reverseAdminMerge(mergeEventId: string): Promise<MergeEventListItem> {
-  const csrf = getCsrfToken();
   const response = await fetch(`${API_BASE_URL}/api/admin/merges/${mergeEventId}/reverse`, {
     method: 'POST',
     credentials: 'include',
-    headers: { Accept: 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+    headers: { Accept: 'application/json', ...csrfHeaders() },
   });
   return handleResponse<MergeEventListItem>(response);
 }

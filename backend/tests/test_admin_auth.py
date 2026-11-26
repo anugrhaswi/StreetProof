@@ -49,8 +49,10 @@ def test_valid_login_sets_session_and_csrf_cookies(client: TestClient):
     body = res.json()
     assert body["authenticated"] is True
     assert body["username"] == "admin"
+    assert isinstance(body.get("csrf_token"), str) and body["csrf_token"]
     assert SESSION_COOKIE_NAME in client.cookies
     assert CSRF_COOKIE_NAME in client.cookies
+    assert client.cookies.get(CSRF_COOKIE_NAME) == body["csrf_token"]
 
 
 def test_invalid_credentials_rejected(client: TestClient):
@@ -72,7 +74,6 @@ def test_authenticated_can_access_protected_endpoint():
     with TestClient(protected_app) as c:
         login = c.post("/api/admin/login", json={"username": "admin", "password": "test-password-123"})
         assert login.status_code == 200
-        # endpoint may fail on db internals in this minimal app; 401 is the failure we're guarding against
         res = c.get("/api/admin/dashboard/stats")
         assert res.status_code != 401
 
@@ -104,7 +105,10 @@ def test_login_then_session_verification_succeeds(client: TestClient):
     assert login.status_code == 200
     session = client.get("/api/admin/session")
     assert session.status_code == 200
-    assert session.json() == {"authenticated": True, "username": "admin"}
+    body = session.json()
+    assert body["authenticated"] is True
+    assert body["username"] == "admin"
+    assert isinstance(body.get("csrf_token"), str) and body["csrf_token"]
 
 
 def test_logout_invalidates_session():
@@ -187,17 +191,16 @@ def test_csrf_protection_blocks_state_change_without_token():
     with TestClient(protected_app) as c:
         login = c.post("/api/admin/login", json={"username": "admin", "password": "test-password-123"})
         assert login.status_code == 200
-        # no CSRF header
         res = c.patch("/api/admin/incidents/some-id/status", json={"status": "closed"})
         assert res.status_code == 403
-        # wrong CSRF
+        assert res.json()["detail"] == "CSRF validation failed"
         res = c.patch(
             "/api/admin/incidents/some-id/status",
             json={"status": "closed"},
             headers={"X-CSRF-Token": "bad-token"},
         )
         assert res.status_code == 403
-        # correct CSRF (request may 404 because id not found, but should pass CSRF/auth)
+        assert res.json()["detail"] == "CSRF validation failed"
         res = c.patch(
             "/api/admin/incidents/some-id/status",
             json={"status": "closed"},
@@ -207,12 +210,10 @@ def test_csrf_protection_blocks_state_change_without_token():
 
 
 def test_session_status_endpoint(client: TestClient):
-    # anonymous
     res = client.get("/api/admin/session")
     assert res.status_code == 200
     assert res.json()["authenticated"] is False
 
-    # logged in
     login = client.post("/api/admin/login", json={"username": "admin", "password": "test-password-123"})
     assert login.status_code == 200
     res = client.get("/api/admin/session")
@@ -220,6 +221,8 @@ def test_session_status_endpoint(client: TestClient):
     body = res.json()
     assert body["authenticated"] is True
     assert body["username"] == "admin"
+    assert isinstance(body.get("csrf_token"), str) and body["csrf_token"]
+    assert body["csrf_token"] == client.cookies.get(CSRF_COOKIE_NAME)
 
 
 def test_login_rate_limiting(client: TestClient, monkeypatch):
@@ -237,3 +240,52 @@ def test_login_rate_limiting(client: TestClient, monkeypatch):
         assert res.status_code == 429
     finally:
         login_rate_limiter.reset()
+
+
+def test_login_then_csrf_protected_action_works_with_rotated_token():
+    from app.api.admin_incidents import router as admin_incidents_router
+    from app.database import get_db
+
+    protected_app = FastAPI()
+    protected_app.include_router(admin_auth_router)
+    protected_app.include_router(admin_incidents_router)
+
+    def _override_db():
+        yield _FakeDB()
+
+    protected_app.dependency_overrides[get_db] = _override_db
+    with TestClient(protected_app) as c:
+        login = c.post("/api/admin/login", json={"username": "admin", "password": "test-password-123"})
+        assert login.status_code == 200
+        login_token = login.json()["csrf_token"]
+        assert login_token == c.cookies.get(CSRF_COOKIE_NAME)
+
+        # Simulate frontend using token from login response/session.
+        res = c.patch(
+            "/api/admin/incidents/some-id/status",
+            json={"status": "closed"},
+            headers={"X-CSRF-Token": login_token},
+        )
+        assert res.status_code in (200, 404)
+
+        logout = c.post("/api/admin/logout", headers={"X-CSRF-Token": login_token})
+        assert logout.status_code == 204
+
+        login2 = c.post("/api/admin/login", json={"username": "admin", "password": "test-password-123"})
+        assert login2.status_code == 200
+        token2 = login2.json()["csrf_token"]
+        assert token2
+        assert token2 != login_token
+        # Old token must not authorize new session.
+        stale = c.patch(
+            "/api/admin/incidents/some-id/status",
+            json={"status": "closed"},
+            headers={"X-CSRF-Token": login_token},
+        )
+        assert stale.status_code == 403
+        fresh = c.patch(
+            "/api/admin/incidents/some-id/status",
+            json={"status": "closed"},
+            headers={"X-CSRF-Token": token2},
+        )
+        assert fresh.status_code in (200, 404)

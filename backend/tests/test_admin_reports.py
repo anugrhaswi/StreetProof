@@ -27,9 +27,12 @@ def _csrf_headers(client: TestClient) -> dict[str, str]:
     return {"X-CSRF-Token": token} if token else {}
 
 
-def _login(client: TestClient) -> None:
+def _login(client: TestClient) -> dict:
     res = client.post("/api/admin/login", json={"username": "admin", "password": "test-password-123"})
     assert res.status_code == 200
+    body = res.json()
+    assert body.get("csrf_token")
+    return body
 
 
 def _seed(db: Session, upload_dir: Path) -> dict:
@@ -439,3 +442,26 @@ def test_delete_last_report_preserves_merge_target_incident(client: TestClient, 
     assert db_session.get(Incident, merge_target_id) is not None
     assert db_session.get(MergeEvent, hist_event_id) is not None
     assert db_session.get(MergeEvent, event_id) is not None
+
+
+def test_delete_report_requires_valid_csrf_and_login_token_works(client: TestClient, db_session: Session, upload_dir: Path):
+    ids = _seed(db_session, upload_dir)
+    login_body = _login(client)
+    csrf = login_body["csrf_token"]
+
+    missing = client.delete(f"/api/admin/reports/{ids['report_a2']}")
+    assert missing.status_code == 403
+    assert missing.json()["detail"] == "CSRF validation failed"
+    assert db_session.get(Report, ids["report_a2"]) is not None
+
+    wrong = client.delete(
+        f"/api/admin/reports/{ids['report_a2']}",
+        headers={"X-CSRF-Token": "bad-token"},
+    )
+    assert wrong.status_code == 403
+    assert wrong.json()["detail"] == "CSRF validation failed"
+    assert db_session.get(Report, ids["report_a2"]) is not None
+
+    ok = client.delete(f"/api/admin/reports/{ids['report_a2']}", headers={"X-CSRF-Token": csrf})
+    assert ok.status_code == 200
+    assert ok.json()["deleted"] is True

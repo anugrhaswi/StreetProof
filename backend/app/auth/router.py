@@ -9,6 +9,7 @@ from app.auth.security import (
     create_session_token,
     hash_password,
     timing_safe_username_match,
+    verify_csrf_token,
     verify_password,
     verify_session_token,
 )
@@ -27,11 +28,13 @@ class LoginRequest(BaseModel):
 class AdminStatusResponse(BaseModel):
     authenticated: bool
     username: str | None = None
+    csrf_token: str | None = None
 
 
 class LoginResponse(BaseModel):
     authenticated: bool
     username: str
+    csrf_token: str
 
 
 def _configured_password_hash() -> str:
@@ -60,9 +63,10 @@ def _cookie_params() -> dict[str, object]:
     }
 
 
-def _set_auth_cookies(response: Response, username: str) -> None:
+def _set_auth_cookies(response: Response, username: str) -> str:
     max_age = settings.admin_session_expire_minutes * 60
     cookie_params = _cookie_params()
+    csrf_token = create_csrf_token()
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=create_session_token(username),
@@ -73,11 +77,12 @@ def _set_auth_cookies(response: Response, username: str) -> None:
     # Double-submit CSRF cookie is JS-readable; header must match on state-changing requests.
     response.set_cookie(
         key=CSRF_COOKIE_NAME,
-        value=create_csrf_token(),
+        value=csrf_token,
         max_age=max_age,
         httponly=False,
         **cookie_params,
     )
+    return csrf_token
 
 
 def _clear_auth_cookies(response: Response) -> None:
@@ -95,8 +100,8 @@ def login(payload: LoginRequest, request: Request, response: Response) -> LoginR
     if not username_ok or not password_ok:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    _set_auth_cookies(response, settings.admin_username)
-    return LoginResponse(authenticated=True, username=settings.admin_username)
+    csrf_token = _set_auth_cookies(response, settings.admin_username)
+    return LoginResponse(authenticated=True, username=settings.admin_username, csrf_token=csrf_token)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -113,10 +118,12 @@ def logout(
 @router.get("/session", response_model=AdminStatusResponse)
 def session_status(
     session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE_NAME),
 ) -> AdminStatusResponse:
     if not session_token:
         return AdminStatusResponse(authenticated=False)
     data = verify_session_token(session_token)
     if not data:
         return AdminStatusResponse(authenticated=False)
-    return AdminStatusResponse(authenticated=True, username=str(data.get("sub")))
+    csrf_token = csrf_cookie if csrf_cookie and verify_csrf_token(csrf_cookie) else None
+    return AdminStatusResponse(authenticated=True, username=str(data.get("sub")), csrf_token=csrf_token)
